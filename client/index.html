@@ -421,8 +421,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const CFG = {
   ceiling: 3.2,
-  player: { radius: 0.16, height: 1.04, crouchHeight: 0.81, posedSpeed: 1.2, walk: 3.2, sprint: 5.2, crouch: 1.6, hop: 3.0, gravity: 9.8 },
-  cam: { right: 0.35, up: 0.2, back: 1.9, pivotStand: 0.88, pivotCrouch: 0.66, fov: 62, minPitch: -1.2, maxPitch: 1.1 },
+  player: { radius: 0.135, height: 0.88, crouchHeight: 0.69, posedSpeed: 1.2, walk: 3.2, sprint: 5.2, crouch: 1.6, hop: 3.0, gravity: 9.8 },
+  cam: { right: 0.3, up: 0.17, back: 1.75, pivotStand: 0.75, pivotCrouch: 0.56, fov: 62, minPitch: -1.2, maxPitch: 1.1 },
   paint: { size: 2048, nominalDensity: 1279, baseColor: [242, 239, 232], undoSteps: 40, tile: 64, stampCooldown: 20, stampOpacity: 0.6 },
   pose: { blend: 0.3, yawStep: THREE.MathUtils.degToRad(5), snapRadius: 1.0 },
 };
@@ -2162,7 +2162,7 @@ function buildKitchen() {
 const PART_NAMES = ['pelvis', 'torso', 'neck', 'head', 'upperarm_L', 'forearm_L', 'hand_L', 'upperarm_R', 'forearm_R', 'hand_R',
   'thigh_L', 'shin_L', 'foot_L', 'thigh_R', 'shin_R', 'foot_R'];
 const PELVIS_REST_Y = 0.62;
-const HS = 0.65;              // Revision 3: hiders are scaled uniformly to 0.65 (~1.04 m). Seekers stay full size.
+const HS = 0.55;              // Revision 4: hiders are scaled uniformly to 0.55 (~0.88 m). Seekers stay full size.
 const fpScaled = (b) => ({ minX: b.minX * HS, maxX: b.maxX * HS, minY: b.minY * HS, maxY: b.maxY * HS, minZ: b.minZ * HS, maxZ: b.maxZ * HS });   // manifest: pelvis pivot height in the rest (stand) pose
 const SEAT_PELVIS = 0.059;    // manifest: sit -> pelvis.y = seatTop + 0.059
 
@@ -2754,6 +2754,7 @@ class PaintCanvas {
     t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
     t.needsUpdate = true;
     this.material = new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.65, metalness: 0, name: 'mannequin_white' });
+    PAINT_CANVASES.set(this.material, this); // eyedropping a hider body reads this canvas
     this.TILE = CFG.paint.tile * this.k | 0 || 16; this.tilesX = Math.ceil(S / this.TILE);
     this.tileFlag = new Uint8Array(this.tilesX * this.tilesX); this.tileList = [];
     this.dirty = null; this.undoStack = []; this.redoStack = [];
@@ -3046,6 +3047,84 @@ const STAMP = {
 // =====================================================================================
 //  PAINT CONTROLLER: tools, stroke interpolation, eyedropper, keyboard shortcuts in paint mode
 // =====================================================================================
+// =====================================================================================
+//  ACCURATE EYEDROPPER (Revision 4)
+//  The old eyedropper read the lit, tone-mapped screen pixel; painted onto the body that colour is lit a second time
+//  and looks too dark. SURFACE_PICK returns the surface's own BASE colour instead, so the paint ends up under the same
+//  lights as the surface it copies:
+//   1. raycast the clicked point (map meshes, props, instanced clutter, every mannequin; FX/outlines/ghost skipped)
+//   2. hider body  -> read its paint canvas at the hit UV (exact painted colour, sRGB bytes)
+//   3. other surface:
+//        uv' = texture.matrix * uv            (repeat / offset / rotation / centre of the texture)
+//        wrap uv' (Repeat / Mirrored / Clamp), flipY-aware row, 3x3 texel average around the point
+//        texel sRGB -> linear, multiply by material.color (linear), vertex colour and instanceColor (linear)
+//        -> back to sRGB bytes
+//   4. unlit (MeshBasic / Shader), strongly emissive or metallic (metalness >= 0.5) surfaces, or no hit
+//      -> fall back to the screen sample.
+//  Pixel data per texture image is cached once (procedural CanvasTextures already own a canvas; images/bitmaps are
+//  drawn to an offscreen canvas the first time; DataTextures use their array directly).
+// =====================================================================================
+const SURFACE_PICK = {
+  cache: new WeakMap(), ray: new THREE.Raycaster(), ndc: new THREE.Vector2(),
+  pixels(tex) {
+    const img = tex.image; if (!img) return null;
+    let c = this.cache.get(img); if (c) return c;
+    try {
+      if (img.data && img.width && img.height) c = { w: img.width, h: img.height, d: img.data, stride: img.data.length / (img.width * img.height) };
+      else {
+        const w = img.width || img.videoWidth, h = img.height || img.videoHeight; if (!w || !h) return null;
+        let ctx = img.getContext ? img.getContext('2d', { willReadFrequently: true }) : null;
+        if (!ctx) { const [cv, x] = TEX.canvas(w, h); x.drawImage(img, 0, 0); ctx = x; }
+        c = { w, h, d: ctx.getImageData(0, 0, w, h).data, stride: 4 };
+      }
+    } catch (e) { c = null; } // tainted / unreadable -> screen fallback
+    if (c) this.cache.set(img, c);
+    return c;
+  },
+  // texture colour (linear RGB) at uv, with the texture transform + wrapping applied, 3x3 average
+  sampleTex(tex, uv) {
+    const px = this.pixels(tex); if (!px) return null;
+    tex.updateMatrix(); const p = new THREE.Vector3(uv.x, uv.y, 1).applyMatrix3(tex.matrix);
+    const wrap = (v, mode) => mode === THREE.RepeatWrapping ? v - Math.floor(v) : mode === THREE.MirroredRepeatWrapping ? (Math.floor(v) % 2 ? 1 - (v - Math.floor(v)) : v - Math.floor(v)) : clamp(v, 0, 1);
+    const u = wrap(p.x, tex.wrapS), v = wrap(p.y, tex.wrapT);
+    const fx = u * px.w - 0.5, fy = (tex.flipY ? 1 - v : v) * px.h - 0.5; // flipY=false: v=0 is the image top row
+    const srgb = tex.colorSpace === THREE.SRGBColorSpace, s2l = (c) => (c < 0.04045 ? c * 0.0773993808 : Math.pow(c * 0.9478672986 + 0.0521327014, 2.4)), toLin = (b) => (srgb ? s2l(b / 255) : b / 255);
+    let r = 0, g = 0, b = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const X = (Math.round(fx + dx) % px.w + px.w) % px.w, Y = (Math.round(fy + dy) % px.h + px.h) % px.h, i = (Y * px.w + X) * px.stride;
+      r += toLin(px.d[i]); g += toLin(px.d[i + 1]); b += toLin(px.d[i + 2]);
+    }
+    return new THREE.Color(r / 9, g / 9, b / 9);
+  },
+  // returns { rgb: [r,g,b] sRGB 0-255, how } or null (=> caller falls back to the screen sample)
+  pick(sx, sy) {
+    this.ndc.set(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1); this.ray.setFromCamera(this.ndc, camera);
+    const targets = [GAME.map.group, ...[...ALL_MANS].map((m) => m.root)];
+    const hits = this.ray.intersectObjects(targets, true);
+    const hit = hits.find((h) => {
+      for (let o = h.object; o; o = o.parent) if (!o.visible || o.userData.hideForStamp) return false;
+      const m = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
+      return m && !(m.transparent && m.opacity < 0.35);
+    });
+    if (!hit) return null;
+    const mat = Array.isArray(hit.object.material) ? hit.object.material[hit.face ? hit.face.materialIndex : 0] : hit.object.material;
+    // hider bodies: read the paint canvas directly (exactly what was painted)
+    const pc = PAINT_CANVASES.get(mat);
+    if (pc && hit.uv) { const S = pc.size, X = clamp(Math.floor(hit.uv.x * S), 0, S - 1), Y = clamp(Math.floor(hit.uv.y * S), 0, S - 1), i = (Y * S + X) * 4; return { rgb: [pc.pixels[i], pc.pixels[i + 1], pc.pixels[i + 2]], how: 'paint canvas' }; }
+    if (!mat || !mat.color || mat.isMeshBasicMaterial || mat.isShaderMaterial) return null;                 // unlit -> screen
+    if (mat.emissive && mat.emissiveIntensity * Math.max(mat.emissive.r, mat.emissive.g, mat.emissive.b) > 0.3) return null; // glowing -> screen
+    // metals get their look from reflections, not their base colour; the lit screen colour matches diffuse paint better
+    if ((mat.metalness || 0) >= 0.5) return null;                                                            // metal -> screen
+    const col = mat.color.clone();                                                                           // linear
+    if (mat.map) { if (!hit.uv) return null; const t = this.sampleTex(mat.map, hit.uv); if (!t) return null; col.multiply(t); }
+    if (mat.vertexColors && hit.object.geometry.attributes.color && hit.face) { const ca = hit.object.geometry.attributes.color; col.multiply(new THREE.Color(ca.getX(hit.face.a), ca.getY(hit.face.a), ca.getZ(hit.face.a))); }
+    if (hit.object.isInstancedMesh && hit.object.instanceColor && hit.instanceId !== undefined) { const ic = new THREE.Color(); hit.object.getColorAt(hit.instanceId, ic); col.multiply(ic); }
+    const out = {}; col.getRGB(out, THREE.SRGBColorSpace);
+    return { rgb: [out.r, out.g, out.b].map((v) => clamp(Math.round(v * 255), 0, 255)), how: (mat.name || 'surface') + (mat.map ? ' texture' : ' colour') + (mat.metalness > 0.5 ? ' (metal)' : '') };
+  },
+};
+const PAINT_CANVASES = new WeakMap(); // material -> PaintCanvas (filled by the PaintCanvas constructor)
+
 const PAINT = {
   canvas: null, tool: 'brush', color: [74, 31, 61], size: 40, opacity: 1, hardness: 0.6,
   recent: [], eyedropArmed: false, stroking: false, orbiting: false, last: null, lastDist: 2.5,
@@ -3099,10 +3178,14 @@ const PAINT = {
     toast(ok ? `Projected the room onto your body (${Math.round(performance.now() - t0)} ms)` : 'Nothing to project from here');
     return ok;
   },
-  eyedrop(sx, sy) {
-    const c = POST.samplePixel(sx, sy);
+  // Eyedropper: the surface's own base colour (SURFACE_PICK); Shift = the old "screen colour" (lit, tone-mapped pixel)
+  eyedrop(sx, sy, screen = false) {
+    let c = null, how = 'screen colour';
+    if (!screen) { const r = SURFACE_PICK.pick(sx, sy); if (r) { c = r.rgb; how = r.how; } }
+    if (!c) c = POST.samplePixel(sx, sy);
+    this.lastPickHow = how;
     this.setColor(c.map(Math.round), 'eyedrop'); this.eyedropArmed = false; PANEL.sync();
-    toast('Picked ' + rgbToHex(...c));
+    toast('Picked ' + rgbToHex(...c) + ' - ' + how);
     return this.color;
   },
   setColor(rgb, src) { this.color = rgb.map((v) => clamp(Math.round(v), 0, 255)); if (src === 'eyedrop' || src === 'swatch') this.pushRecent(this.color); PANEL.sync(src); },
@@ -4677,7 +4760,7 @@ function setHint(text) { const h = $('hint'); if (text) { h.textContent = text; 
 const CONTROLS = [
   ['WASD', 'move (posed: shuffle at 1.2 m/s in HIDE)'], ['Shift', 'sprint'], ['C', 'crouch (Ctrl also works, but Ctrl+W closes the browser tab)'], ['Space', 'hop'],
   ['Q (hold)', 'pose wheel - release on a pose; wheel rotates, click locks'], ['X', 'stand up / cancel pose'], ['E', 'paint mode'],
-  ['I / Alt+click', 'eyedropper'], ['[ ]', 'brush size'], ['Ctrl+Z / Ctrl+Y', 'undo / redo'], ['V', 'reset paint view'],
+  ['I / Alt+click', 'eyedropper: surface base colour (add Shift for the lit screen colour)'], ['[ ]', 'brush size'], ['Ctrl+Z / Ctrl+Y', 'undo / redo'], ['V', 'reset paint view'],
   ['Left click', 'paint (hider) / fire the paint blaster, hold for 3 shots/s (seeker)'], ['Right click', 'zoom (seeker) / orbit (paint mode)'], ['F', 'flashlight (seeker)'],
   ['R', 'scan pulse (seeker, 2 per round)'], ['F3', 'FPS counter'], ['Esc', 'pause'],
 ];
@@ -4814,7 +4897,7 @@ cv.addEventListener('pointerdown', (e) => {
   cv.setPointerCapture(e.pointerId);
   if (e.button === 2) { PAINT.orbiting = true; return; }
   if (e.button !== 0) return;
-  if (e.altKey || PAINT.eyedropArmed) { PAINT.eyedrop(e.clientX, e.clientY); return; }
+  if (e.altKey || PAINT.eyedropArmed) { PAINT.eyedrop(e.clientX, e.clientY, e.shiftKey); return; }
   PAINT.beginStroke(e.clientX, e.clientY);
 });
 cv.addEventListener('pointermove', (e) => {
@@ -4856,7 +4939,7 @@ function updatePaintCursor(now) {
   const { x, y } = INPUT.mouse;
   if (PAINT.eyedropArmed || INPUT.keys.has('AltLeft')) {
     bc.classList.add('hidden'); lp.classList.remove('hidden'); lp.style.left = x + 'px'; lp.style.top = y + 'px';
-    if (now - loupeT > 90) { loupeT = now; lp.style.background = rgbToHex(...POST.samplePixel(x, y)); }
+    if (now - loupeT > 90) { loupeT = now; const r = !INPUT.keys.has('ShiftLeft') && SURFACE_PICK.pick(x, y); lp.style.background = rgbToHex(...(r ? r.rgb : POST.samplePixel(x, y))); }
     return;
   }
   lp.classList.add('hidden');
@@ -4998,7 +5081,8 @@ window.PNS = {
   paintAt(sx, sy) { PAINT.beginStroke(sx, sy); const hit = PAINT.stroking; PAINT.endStroke(); return !!hit; },
   paintStroke(points) { PAINT.beginStroke(points[0][0], points[0][1]); for (const [x, y] of points.slice(1)) PAINT.strokeTo(x, y); PAINT.endStroke(); return PAINT.canvas.undoStack.length; },
   fillAt(sx, sy) { return PAINT.fillAt(sx, sy); },
-  eyedrop(x, y) { return rgbToHex(...PAINT.eyedrop(x, y)); },
+  eyedrop(x, y, screen) { return rgbToHex(...PAINT.eyedrop(x, y, screen)); },
+  surfaceAt(x, y) { return SURFACE_PICK.pick(x, y); },
   setColor(hex) { PAINT.setColor(hexToRgb(hex), 'hex'); return rgbToHex(...PAINT.color); },
   setTool(t) { PAINT.setTool(t); return PAINT.tool; },
   setBrush({ size, opacity, hardness } = {}) { if (size !== undefined) PAINT.setSize(size); if (opacity !== undefined) PAINT.opacity = opacity; if (hardness !== undefined) PAINT.hardness = hardness; PANEL.sync(); },

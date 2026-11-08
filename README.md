@@ -20,7 +20,7 @@ blend into cozy-eerie mansion rooms; seekers hunt them in first person and tag t
 | Q (hold) | pose wheel: release on a pose, mouse wheel turns the body, left click locks |
 | X | stand up / cancel a pose |
 | E | paint mode (left drag paint, right drag orbit, wheel zoom) |
-| I or Alt+click | eyedropper (samples the real rendered pixel) |
+| I or Alt+click | eyedropper: picks the surface's own base colour (Shift = the lit on-screen colour) |
 | [ ] | brush size |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | V | back to the locked paint view |
@@ -33,7 +33,7 @@ blend into cozy-eerie mansion rooms; seekers hunt them in first person and tag t
 
 A round: **HIDE** (hiders move, pose and paint; seekers are blindfolded) then **SEEK** (hiders can keep moving and posing;
 fresh paint shimmers; seekers shoot red paint pellets with the **paint blaster**: one hit tags, a miss costs 2 s) then
-**RESULTS** (each hider's painted look, scores, totals). Hiders are small (about 1 m); seekers are full size.
+**RESULTS** (each hider's painted look, scores, totals). Hiders are small (about 0.9 m); seekers are full size.
 
 **Game modes** (offline lobby and online host settings):
 - **Classic**: seekers tag hiders out; seekers win if everyone is found before the timer ends.

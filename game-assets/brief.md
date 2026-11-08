@@ -27,6 +27,21 @@ The user played checkpoint A and asked for three changes. They override anything
 
 ---
 
+## Revision 4 (user feedback, 2026-11-08)
+
+1. **Hiders a little smaller:** hider scale 0.65 → **0.55** (≈ 0.88 m tall), with everything that scaled in
+   Revision 3 scaled again to match (online hit capsule included). Seekers stay full size.
+2. **Accurate eyedropper:** the old eyedropper sampled the lit, tone-mapped screen pixel, so the picked color was
+   lit a second time on the body and looked too dark. Now it picks the **surface's own base color**: raycast the
+   clicked point, read the material's color texture at the hit UV (with the texture's repeat/offset/rotation and
+   wrapping applied, bilinear, small 3×3 average) multiplied by `material.color` (and vertex color if used), doing
+   the multiply in linear space and converting to sRGB hex. Painted onto the body, that color then sits under the
+   same lights as the surface and matches it. Eyedropping a hider's body (your own or someone else's) reads their
+   paint canvas at the hit UV. Unlit / emissive surfaces and anything without a readable texture fall back to the old
+   screen sample. Keep the old behaviour available as "screen color" with Shift + eyedropper for anyone who wants it.
+
+---
+
 ## Revision 3 (user feedback after the live deploy, 2026-11-08)
 
 Four more changes from the user. They override anything older in this brief (including Revision 2):
