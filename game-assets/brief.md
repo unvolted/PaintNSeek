@@ -27,6 +27,47 @@ The user played checkpoint A and asked for three changes. They override anything
 
 ---
 
+## Revision 3 (user feedback after the live deploy, 2026-11-08)
+
+Four more changes from the user. They override anything older in this brief (including Revision 2):
+
+1. **Hiders keep moving after the hide timer.** In SEEK, hiders can walk, sprint, crouch, hop, pose and move while
+   posed exactly as in HIDE (speeds from §3). Paint touch-ups during SEEK still shimmer. Moving makes them easier to
+   spot: the AI's suspicion and the Scan Pulse already count movement.
+2. **Hiders are smaller, like in the trailer.** The hider mannequin is scaled uniformly to **0.65** (≈ 1.04 m tall:
+   about counter or stove height, a little taller than a balloon pile). Scale everything that depends on body size:
+   collision capsule, third-person camera offsets and pivot, pose snapping heights (pelvis heights × 0.65), seat
+   detection, lean distance, brush world size, the Blend % and AI detection crops, and nooks (more spots now fit a
+   hider). Speeds stay as in §3. Seekers stay full size (≈ 1.6 m, first-person eye height 1.5 m).
+3. **Seekers carry a gun.** Asset `paint_blaster` (§10): a chunky, toy-like cartoon paint blaster in the party palette
+   (not a realistic firearm). It replaces the click-to-tag.
+   - Shown in first person (bottom-right, with a little sway, recoil kick and muzzle puff) and held by seeker bodies
+     seen by others (online seekers, AI seekers).
+   - Left click fires a hitscan **red paint pellet**: a short bright tracer, a small red splat decal where it lands
+     (fades after 10 s, max 60 splats), a "pop" sound. Fire rate 3 shots/s. Max range 25 m.
+   - **One hit tags a hider** (the red scribble circle still draws around them, then they are out, or infected in
+     Infection mode). A miss costs **−2 s** of seek time (replaces the −5 s; the "✗ −2s" pop stays) so shooting is
+     not punished too hard now that hiders move.
+   - Right mouse still zooms; Scan Pulse, flashlight and the rest of the seeker kit stay the same.
+   - AI seekers use the same gun with the same rules (they aim with a small reaction delay and spread by difficulty).
+   - Online: the server validates every shot like the old tag (ray vs the hider's latest capsule, scaled to 0.65)
+     and rate-limits it to 3/s.
+4. **New game mode: Infection.** Pick it in the lobby (Mode: Classic / Infection), offline and online.
+   - Starts with 1 seeker (the "infected"), or 2 with 8+ players. Default hide 60 s, seek 240 s.
+   - When an infected player shoots a hider, that hider is **infected**: they immediately become a full-size seeker
+     with a gun (first-person, same kit, scan pulses reset to 2), spawn where they were tagged, and hunt the rest.
+     Their paint stays on their body as a trophy.
+   - Infected seekers have a sickly green glow outline and green-tinted paint pellets so everyone can tell them
+     apart; the HUD shows "Infected n / Survivors m" and a feed line for each infection.
+   - The round ends when every hider is infected (Infected win) or the timer runs out (Survivors win).
+   - Scoring: +100 per infection to the shooter, +1/s survived for hiders, +150 for surviving to the end,
+     Nerves of Steel as before.
+   - Offline: AI hiders who get infected become AI seekers. If the player is infected, they switch to the seeker
+     view and keep playing.
+   - Classic mode is unchanged apart from changes 1–3.
+
+---
+
 ## 0. Originality rule (all stages)
 
 The user supplied a third-party game trailer only as a reference for **mechanics and UX**. PaintNSeek must not
@@ -324,6 +365,11 @@ pose sheet. One establishing image per map, plus texture swatch close-ups.
 | id | description | size |
 |---|---|---|
 | `mannequin` (Revision 2, replaces the lay-figure) | The user's own design, `game-assets/reference/player_sketch.png`: faceless white "bean" figure. **Shapes:** a big sphere head (diameter ≈ 27% of total height) sitting directly on the torso, no visible neck; a tall rounded-rectangle torso (≈ 40% of height, width ≈ 17% of height, depth about 0.6–0.7 of its width, soft rounded shoulders and bottom); two long thin sausage arms (≈ 39% of height, ≈ 5% wide, slightly tapered, rounded tips, no hands) hanging straight down beside the torso from the shoulder tops with a small gap; two sausage legs (≈ 32% of height, ≈ 6–7% wide, rounded bottoms, no feet) under the torso with a rounded arch between them at the crotch. Match the sketch's proportions; read them off the image. **No visible joints when straight**, but keep hidden bend points so poses work: each arm and leg is split at mid-length into upper/lower parts with matched rounded overlaps (straight reads as one smooth sausage, bent reads as a soft rounded elbow/knee, never a gap); the torso is split into `torso` (upper) and `pelvis` (lower) the same way so the spine can bend for Curl and Sit. **Node hierarchy kept compatible with the game code:** `pelvis` (root) → `torso` → `neck` (empty node or tiny hidden part at the head pivot) → `head`; `torso` → `upperarm_L/R` → `forearm_L/R` → `hand_L/R` (empty nodes at the arm tips); `pelvis` → `thigh_L/R` → `shin_L/R` → `foot_L/R` (empty nodes at the leg tips, foot nodes at y = 0). Pivots at the hidden bend centers; same local axis conventions as before (+Y along the limb toward its child, +Z forward). Rest pose: **arms hanging down as drawn**. **One UV atlas for the whole body** (0–1, non-overlapping, uniform texel density, ≥16 px padding at 2048², seams on back/inner sides). One material `mannequin_white` (white, roughness 0.65). Smooth shading, ~4–8k tris total. | ~1.6 m tall |
+
+### Seeker equipment (Revision 3)
+| id | description | size |
+|---|---|---|
+| `paint_blaster` | Chunky toy-like cartoon paint blaster, clearly not a realistic firearm: rounded body in the party palette (e.g. teal body, coral grip, butter-yellow trim), a clear dome paint tank on top filled with red paint (separate `paint_tank` object with its own material so the game can tint it green for Infection), a stubby flared muzzle, a trigger (separate, pivoted), a few chunky bolts/stickers. Origin at the grip where the hand holds it, barrel along +Z (forward), with empty nodes `muzzle` at the barrel tip and `grip` at the hand point. Works in first person (looks good from behind/above-right) and held by a full-size seeker. ≤ 2.5k tris, one material per surface with clear names. | ≈ 0.42 l × 0.10 w × 0.22 h |
 
 ### Map 1 — Plum Ballroom Gallery
 | id | description | size |

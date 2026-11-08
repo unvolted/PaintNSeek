@@ -13,7 +13,7 @@ blend into cozy-eerie mansion rooms; seekers hunt them in first person and tag t
 
 | Key | Action |
 |---|---|
-| WASD | move (while posed during HIDE: shuffle at 1.2 m/s) |
+| WASD | move (hiders move in HIDE and SEEK; while posed: shuffle at 1.2 m/s) |
 | Shift | sprint |
 | C (or Ctrl) | crouch (C is safer: Ctrl+W closes the browser tab) |
 | Space | hop |
@@ -24,15 +24,22 @@ blend into cozy-eerie mansion rooms; seekers hunt them in first person and tag t
 | [ ] | brush size |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | V | back to the locked paint view |
-| Left click | paint / tag (seeker) |
+| Left click | paint (hider) / fire the paint blaster, hold for 3 shots per second (seeker) |
 | Right mouse | orbit (paint mode) / zoom (seeker) |
 | F | flashlight (seeker) |
 | R | Scan Pulse (seeker, 2 per round) |
 | F3 | FPS counter |
 | Esc | pause |
 
-A round: **HIDE** (hiders move, pose and paint; seekers are blindfolded) then **SEEK** (hiders are frozen, small paint
-touch-ups shimmer; seekers tag; a miss costs 5 s) then **RESULTS** (each hider's painted look, scores, totals).
+A round: **HIDE** (hiders move, pose and paint; seekers are blindfolded) then **SEEK** (hiders can keep moving and posing;
+fresh paint shimmers; seekers shoot red paint pellets with the **paint blaster**: one hit tags, a miss costs 2 s) then
+**RESULTS** (each hider's painted look, scores, totals). Hiders are small (about 1 m); seekers are full size.
+
+**Game modes** (offline lobby and online host settings):
+- **Classic**: seekers tag hiders out; seekers win if everyone is found before the timer ends.
+- **Infection**: one infected seeker (two with 8+ players). A hit hider becomes an infected seeker on the spot (green
+  glow, green paint, a gun, 2 fresh scan pulses) and hunts the rest, keeping their paint as a trophy. Infected win when
+  every hider is infected; survivors win when the timer runs out. +100 per infection, +1/s survived, +150 for surviving.
 
 ## Run locally
 
@@ -75,6 +82,6 @@ game-assets/             design brief, concept art and model sources (not needed
   stroke events; full PNG snapshots of each hider's paint canvas are sent at SEEK start, after project stamps/undo,
   every 10 s while painting, and to late joiners / reconnecting players.
 - The server owns rooms, roles, the timer and phases, validates tags (ray vs the hider's reported hit capsule within
-  25 m), applies the -5 s miss penalty and computes all scores. Seekers receive no hider positions or paint during HIDE.
+  25 m), validates and rate-limits shots (3/s), applies the -2 s miss penalty, runs Infection conversions and computes all scores. Seekers receive no hider positions or paint during HIDE.
 - Messages are size-capped and rate-limited. A dropped player keeps their seat for 30 s and rejoins the same room
   (even after a page reload); if the host leaves, the next player becomes host; empty rooms are removed.

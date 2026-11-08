@@ -318,6 +318,7 @@
           <div class="formGrid" style="margin-top:10px">
             <label for="nHide">Hide (s)</label><input type="number" id="nHide" min="20" max="600" step="10">
             <label for="nSeek">Seek (s)</label><input type="number" id="nSeek" min="30" max="900" step="10">
+            <label for="nMode">Mode</label><select id="nMode"><option value="classic">Classic</option><option value="infection">Infection</option></select>
             <label for="nSeekers">Seekers</label><select id="nSeekers"><option value="1">1</option><option value="2">2</option></select>
           </div></div>
       </div>
@@ -333,6 +334,7 @@
       <label for="lSeek">Seek time (s)</label><input type="number" id="lSeek" min="30" max="900" step="10">
       <label for="lAISeek" id="lAISeekRow">AI seekers</label><input type="number" id="lAISeek" min="0" max="2">
       <label for="lAIHide">AI hiders</label><input type="number" id="lAIHide" min="0" max="4">
+      <label for="lMode">Game mode</label><select id="lMode"><option value="classic">Classic</option><option value="infection">Infection</option></select>
       <label for="lDiff">AI difficulty</label><select id="lDiff"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option></select>
       <label for="lBlend">Blend % meter</label><input type="checkbox" id="lBlend">
       <label for="lComp">Competitive (no assist)</label><input type="checkbox" id="lComp">
@@ -411,7 +413,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
@@ -419,8 +421,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const CFG = {
   ceiling: 3.2,
-  player: { radius: 0.24, height: 1.6, crouchHeight: 1.25, posedSpeed: 1.2, walk: 3.2, sprint: 5.2, crouch: 1.6, hop: 3.0, gravity: 9.8 },
-  cam: { right: 0.5, up: 0.3, back: 2.6, pivotStand: 1.36, pivotCrouch: 1.02, fov: 62, minPitch: -1.2, maxPitch: 1.1 },
+  player: { radius: 0.16, height: 1.04, crouchHeight: 0.81, posedSpeed: 1.2, walk: 3.2, sprint: 5.2, crouch: 1.6, hop: 3.0, gravity: 9.8 },
+  cam: { right: 0.35, up: 0.2, back: 1.9, pivotStand: 0.88, pivotCrouch: 0.66, fov: 62, minPitch: -1.2, maxPitch: 1.1 },
   paint: { size: 2048, nominalDensity: 1279, baseColor: [242, 239, 232], undoSteps: 40, tile: 64, stampCooldown: 20, stampOpacity: 0.6 },
   pose: { blend: 0.3, yawStep: THREE.MathUtils.degToRad(5), snapRadius: 1.0 },
 };
@@ -1066,7 +1068,7 @@ const MODEL_IDS = ['mannequin',
   'bed_fourposter', 'loveseat_red', 'pendant_drum', 'wardrobe', 'vanity', 'bookshelf', 'curtain_drape', 'doorway_molded', 'steamer_trunk',
   'dresser_drawers', 'nightstand_lamp', 'rocking_chair', 'laundry_pile', 'writing_desk', 'cheval_mirror',
   // Map 3
-  'counter_steel', 'sink_double', 'range_oven', 'rack_wire', 'pot_rack', 'box_cardboard', 'box_cardboard_open', 'crate_produce', 'hose_coiled', 'flour_sack',
+  'counter_steel', 'sink_double', 'range_oven', 'rack_wire', 'pot_rack', 'paint_blaster', 'box_cardboard', 'box_cardboard_open', 'crate_produce', 'hose_coiled', 'flour_sack',
   'fridge_tall', 'trolley_cart', 'stockpot_stack', 'mop_bucket', 'trash_bin', 'bread_rack'];
 const MODELS = {};
 const MISSING_MODELS = [];
@@ -2159,7 +2161,9 @@ function buildKitchen() {
 // upperarm/thigh: +X swings forward, +Z raises _L outward (_R uses -Z). forearm +X bends the elbow, shin -X the knee.
 const PART_NAMES = ['pelvis', 'torso', 'neck', 'head', 'upperarm_L', 'forearm_L', 'hand_L', 'upperarm_R', 'forearm_R', 'hand_R',
   'thigh_L', 'shin_L', 'foot_L', 'thigh_R', 'shin_R', 'foot_R'];
-const PELVIS_REST_Y = 0.62;   // manifest: pelvis pivot height in the rest (stand) pose
+const PELVIS_REST_Y = 0.62;
+const HS = 0.65;              // Revision 3: hiders are scaled uniformly to 0.65 (~1.04 m). Seekers stay full size.
+const fpScaled = (b) => ({ minX: b.minX * HS, maxX: b.maxX * HS, minY: b.minY * HS, maxY: b.maxY * HS, minZ: b.minZ * HS, maxZ: b.maxZ * HS });   // manifest: pelvis pivot height in the rest (stand) pose
 const SEAT_PELVIS = 0.059;    // manifest: sit -> pelvis.y = seatTop + 0.059
 
 // The 8 wheel poses (angles from mannequin_v2_poses.png, degrees). `pelvisRot` turns the whole body about the hips.
@@ -2305,7 +2309,7 @@ const INPUT = {
 // may the local hider move right now? (HIDE phase or free roam; frozen in SEEK, after being tagged, while painting)
 function hiderMayMove() {
   return GAME.state === 'play' && !GAME.paintMode && !POSE_UI.open && !POSE_UI.placement &&
-    (!ROUND.active || ROUND.phase === 'hide') && !(GAME.player && GAME.player.out);
+    (!ROUND.active || ROUND.phase === 'hide' || ROUND.phase === 'seek') && !(GAME.player && GAME.player.out); // Revision 3: no freeze in SEEK
 }
 function readMoveInput(camYaw) {
   let ix = 0, iz = 0;
@@ -2319,7 +2323,7 @@ function readMoveInput(camYaw) {
 // Posed footprint (container-space bounds of the posed body) -> a few circles along its long axis, for collision
 function footprintCircles(fp) {
   const w = fp.maxX - fp.minX, d = fp.maxZ - fp.minZ, alongZ = d >= w;
-  const r = clamp(Math.min(w, d) / 2, 0.14, 0.3), len = Math.max(w, d), n = Math.max(1, Math.ceil((len - 2 * r) / (1.4 * r)) + 1);
+  const r = clamp(Math.min(w, d) / 2, 0.1, 0.22), len = Math.max(w, d), n = Math.max(1, Math.ceil((len - 2 * r) / (1.4 * r)) + 1);
   const cx = (fp.minX + fp.maxX) / 2, cz = (fp.minZ + fp.maxZ) / 2, out = [];
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0 : (i / (n - 1) - 0.5) * (len - 2 * r);
@@ -2330,7 +2334,7 @@ function footprintCircles(fp) {
 
 class Player {
   constructor(map, material) {
-    this.man = new Mannequin(material);
+    this.man = new Mannequin(material); this.man.root.scale.setScalar(HS);
     scene.add(this.man.root);
     const s = map.spawns.hiders[0];
     this.pos = new THREE.Vector3(s.x, 0, s.z);
@@ -2354,7 +2358,7 @@ class Player {
     this.syncRoot();
   }
   syncRoot(yawOff = 0) { this.man.root.position.copy(this.pos); this.man.root.rotation.y = this.yaw + yawOff; }
-  get center() { return new THREE.Vector3(this.pos.x, this.pos.y + (this.posed ? Math.max(0.25, this.posed.headY * 0.55) : (this.crouch ? 0.6 : 0.85)), this.pos.z); }
+  get center() { return new THREE.Vector3(this.pos.x, this.pos.y + (this.posed ? Math.max(0.15, this.posed.headY * 0.55) : (this.crouch ? 0.6 : 0.85) * HS), this.pos.z); }
   markActive() { this.lastActivity = GAME.time; }
 
   // Start a 0.3 s blend from the current displayed state to (frame, pos, yaw)
@@ -2365,7 +2369,7 @@ class Player {
   }
   // lock a snapped pose result (from snapPose) as the current pose
   setPosed(name, r, blend = true) {
-    const fp = RIG.bounds(r.frame);
+    const fp = fpScaled(RIG.bounds(r.frame));
     this.posed = { name, align: POSES[name].align, frame: r.frame, pos: r.pos.clone(), yaw: r.yaw, headY: r.headY, fp, circles: footprintCircles(fp),
       onSeat: !!r.seat, onBed: r.onBed, wall: r.wall || null, leanFree: POSES[name].align === 'lean' && !r.wall, stillT: 0, triedSnap: true };
     if (blend) this.startBlend(r.frame, r.pos, r.yaw);
@@ -2392,7 +2396,7 @@ class Player {
       // sit: leaving the seat drops to the floor version
       if (P.align === 'sit' && P.onSeat) {
         const r = RIG.evaluate(POSES.sitFloor); r.frame.pelvis.y -= r.minY;
-        P.frame = r.frame; P.onSeat = false; P.headY = r.head.y - r.minY; P.fp = RIG.bounds(r.frame); P.circles = footprintCircles(P.fp);
+        P.frame = r.frame; P.onSeat = false; P.headY = (r.head.y - r.minY) * HS; P.fp = fpScaled(RIG.bounds(r.frame)); P.circles = footprintCircles(P.fp);
       }
       // lean: slide along the wall; more than 0.3 m away from it -> stand free; re-snap when a wall is close again
       if (P.align === 'lean') {
@@ -2475,7 +2479,7 @@ class Player {
       blendFrames(this.baseFrame, this.baseFrame, base, 1 - Math.exp(-dt * 10));
       const ref = this.crouch ? CFG.player.crouch : CFG.player.walk;
       this.walkAmt = lerp(this.walkAmt, this.grounded ? clamp(this.speed / ref, 0, 1) : 0.3, 1 - Math.exp(-dt * 10));
-      this.phase += dt * (this.speed / (this.crouch ? 0.5 : 0.68)) * Math.PI;
+      this.phase += dt * (this.speed / ((this.crouch ? 0.5 : 0.68) * HS)) * Math.PI;
       walkOverlay(this.baseFrame, this.tmpFrame, this.phase, this.walkAmt, this.speed > CFG.player.walk + 0.5);
       blendFrames(man.frame, man.frame, this.tmpFrame, 1 - Math.exp(-dt * 18));
     }
@@ -2493,7 +2497,7 @@ const CAM = {
     if (GAME.paintMode) return this.updatePaint(dt);
     // pivot height follows stance / pose head height
     let wantH = p.crouch ? CFG.cam.pivotCrouch : CFG.cam.pivotStand;
-    if (p.posed) wantH = clamp(p.posed.headY - 0.05, 0.45, CFG.cam.pivotStand);
+    if (p.posed) wantH = clamp(p.posed.headY - 0.04, 0.3, CFG.cam.pivotStand);
     p.pivotH = lerp(p.pivotH, wantH, 1 - Math.exp(-dt * 8));
     const pivot = this._pivot.set(p.pos.x, p.pos.y + p.pivotH, p.pos.z);
     camera.rotation.set(p.camPitch, p.camYaw, 0, 'YXZ');
@@ -2871,6 +2875,7 @@ class PaintCanvas {
 
   // ---- a brush dab at a 3D hit on `man` (Mannequin). Handles seams: paints every island within the radius.
   dabAtHit(man, hit, Rworld, tool, col, opacity, hardness) {
+    Rworld /= (man.root.scale.x || 1); // grid/UV maths run in body space (hiders are scaled 0.65)
     const PM = PAINT_MESH, hitPart = hit.object.userData.part, hp = PM.partByName[hitPart];
     if (!hp) return 0;
     const hitTri = hp.triStart + hit.faceIndex, hitIsland = PM.triIsland[hitTri];
@@ -3047,7 +3052,7 @@ const PAINT = {
   raycaster: new THREE.Raycaster(), _ndc: new THREE.Vector2(),
   TOOLS: { brush: 'Round brush', fill: 'Flat fill', smudge: 'Smudge', eraser: 'Eraser', stamp: 'Project stamp' },
   // world radius of the brush: size is a diameter in texels at the nominal 1160 px/m density
-  get radiusWorld() { return (this.size / 2) / CFG.paint.nominalDensity; },
+  get radiusWorld() { return (this.size / 2) / CFG.paint.nominalDensity * HS; },
   pick(sx, sy) {
     const p = GAME.player; if (!p) return null;
     this._ndc.set((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1);
@@ -3290,7 +3295,7 @@ const POSE_UI = {
     // ghost preview mannequin (translucent, never painted, hidden from the project stamp)
     const gm = new THREE.MeshStandardMaterial({ color: 0x9fe3ff, emissive: 0x2a6f8f, emissiveIntensity: 0.6, transparent: true, opacity: 0.38, depthWrite: false, roughness: 0.5 });
     this.ghost = new Mannequin(gm); this.ghost.meshes.forEach((m) => { m.layers.disable(2); m.castShadow = false; m.receiveShadow = false; });
-    this.ghost.root.userData.hideForStamp = true; this.ghost.root.visible = false; scene.add(this.ghost.root);
+    this.ghost.root.userData.hideForStamp = true; this.ghost.root.scale.setScalar(HS); this.ghost.root.visible = false; scene.add(this.ghost.root);
   },
   setSel(i) {
     this.sel = i;
@@ -3372,31 +3377,31 @@ function snapPose(name, player, yaw, yawUser) {
       // pick the first leg variant whose feet stay above the floor at this seat height (knees rise on low seats)
       let r;
       for (const v of [spec, POSES.sitMid, POSES.sitLow]) {
-        r = RIG.evaluate(v); r.frame.pelvis.y = best.top + SEAT_PELVIS;
-        if (r.minY - PELVIS_REST_Y + best.top + SEAT_PELVIS >= -0.005) break;
+        r = RIG.evaluate(v); r.frame.pelvis.y = best.top / HS + SEAT_PELVIS; // body units (root scaled by HS)
+        if (r.minY - PELVIS_REST_Y + best.top / HS + SEAT_PELVIS >= -0.005) break;
       }
-      const low = r.minY - PELVIS_REST_Y + best.top + SEAT_PELVIS;
+      const low = r.minY - PELVIS_REST_Y + best.top / HS + SEAT_PELVIS;
       if (low < 0) r.frame.pelvis.y -= low; // still touching: lift slightly
       const sy = best.kind === 'armchair' ? best.yaw : (yawUser ? yaw : best.yaw);
       const back = best.kind === 'armchair' ? 0.06 : 0.12; // hips slightly behind the seat center
-      out.pos.set(best.x - Math.sin(sy) * back, 0, best.z - Math.cos(sy) * back);
-      out.yaw = sy; out.yawLocked = best.kind === 'armchair'; out.frame = r.frame; out.headY = r.head.y - PELVIS_REST_Y + r.frame.pelvis.y;
+      out.pos.set(best.x - Math.sin(sy) * back * HS, 0, best.z - Math.cos(sy) * back * HS);
+      out.yaw = sy; out.yawLocked = best.kind === 'armchair'; out.frame = r.frame; out.headY = (r.head.y - PELVIS_REST_Y + r.frame.pelvis.y) * HS;
       out.note = best.kind === 'armchair' ? 'armchair' : best.kind || 'seat'; out.seat = best;
       return out;
     }
     const r = RIG.evaluate(POSES.sitFloor); const g = map.groundAt(base.x, base.z);
-    r.frame.pelvis.y -= r.minY; out.pos.y = g; out.frame = r.frame; out.headY = r.head.y - r.minY + g; out.note = 'on the floor';
+    r.frame.pelvis.y -= r.minY; out.pos.y = g; out.frame = r.frame; out.headY = (r.head.y - r.minY) * HS + g; out.note = 'on the floor';
     return out;
   }
   const r = RIG.evaluate(spec);
   r.frame.pelvis.y -= r.minY;                       // lowest point of the body touches the support
-  out.headY = r.head.y - r.minY; out.frame = r.frame;
+  out.headY = (r.head.y - r.minY) * HS; out.frame = r.frame;
   if (spec.align === 'lean') {
     const w = COLL.nearestWall(base, CFG.pose.snapRadius + CFG.player.radius, 1.0);
     if (w) {
       out.yaw = Math.atan2(w.normal.x, w.normal.z); out.yawLocked = true;
-      out.pos.copy(w.point).addScaledVector(w.normal, -r.minZ + 0.01);
-      out.wall = { normal: w.normal.clone(), point: w.point.clone(), off: -r.minZ + 0.01 };
+      out.pos.copy(w.point).addScaledVector(w.normal, -r.minZ * HS + 0.01);
+      out.wall = { normal: w.normal.clone(), point: w.point.clone(), off: -r.minZ * HS + 0.01 };
       out.note = 'against the wall';
     } else out.note = 'no wall within 1 m';
   }
@@ -3404,7 +3409,7 @@ function snapPose(name, player, yaw, yawUser) {
     // keep both ends of the body out of walls/props: push the body along its own axis
     const ax = Math.sin(out.yaw), az = Math.cos(out.yaw);
     for (let it = 0; it < 3; it++) {
-      for (const lz of [r.minZ + 0.12, r.maxZ - 0.12]) {
+      for (const lz of [r.minZ * HS + 0.08, r.maxZ * HS - 0.08]) {
         const q = new THREE.Vector3(out.pos.x + ax * lz, 0, out.pos.z + az * lz), q0 = q.clone();
         COLL.resolveCircle(q, 0.12, 0.02, 0.3);
         out.pos.x += q.x - q0.x; out.pos.z += q.z - q0.z;
@@ -3415,7 +3420,7 @@ function snapPose(name, player, yaw, yawUser) {
     for (const b of (map.lieSurfaces || [])) {
       const [lx, lz] = COLL.toLocal({ cx: b.x, cz: b.z, c: Math.cos(D2R(b.rot)), s: Math.sin(D2R(b.rot)) }, base.x, base.z);
       if (Math.abs(lx) > b.w / 2 + 0.8 || Math.abs(lz) > b.l / 2 + 0.8) continue;
-      out.yaw = yawUser ? yaw : D2R(b.rot); const cz = (r.minZ + r.maxZ) / 2;
+      out.yaw = yawUser ? yaw : D2R(b.rot); const cz = (r.minZ + r.maxZ) / 2 * HS;
       out.pos.set(b.x - Math.sin(out.yaw) * cz, 0, b.z - Math.cos(out.yaw) * cz); out.onBed = b.top; out.note = 'on the bed'; break;
     }
   }
@@ -3598,10 +3603,10 @@ function makeAIHider(name, nook, rnd) {
   const pose = /spread/.test(d) ? 'spread' : /lie|quilt|floor/.test(d) ? 'lieflat' : /curl|heap|pile|under|cushion/.test(d) ? 'curl' : /sit|chair|loveseat|seat/.test(d) ? 'sit'
     : /lean|wall|bookshel|rack|brick|doorway/.test(d) ? 'lean' : /crouch|behind|corner|crates|kneehole/.test(d) ? 'crouch' : /frame|wardrobe|curtain|mirror|backsplash/.test(d) ? 'stand' : 'curl';
   const pos = { pos: new THREE.Vector3(nook.x + (rnd() - 0.5) * 0.2, 0, nook.z + (rnd() - 0.5) * 0.2) };
-  const r = pose === 'stand' ? (() => { const e = RIG.evaluate(POSES.stand); e.frame.pelvis.y -= e.minY; return { frame: e.frame, pos: pos.pos.clone(), yaw: rnd() * 6.28, headY: e.head.y - e.minY }; })()
+  const r = pose === 'stand' ? (() => { const e = RIG.evaluate(POSES.stand); e.frame.pelvis.y -= e.minY; return { frame: e.frame, pos: pos.pos.clone(), yaw: rnd() * 6.28, headY: (e.head.y - e.minY) * HS }; })()
     : snapPose(pose, pos, rnd() * Math.PI * 2, true);
   if (pose === 'stand') COLL.resolveCircle(r.pos, 0.2, 0, 1.6);
-  man.apply(r.frame); man.root.position.copy(r.pos); man.root.rotation.y = r.yaw; man.root.updateMatrixWorld(true);
+  man.apply(r.frame); man.root.scale.setScalar(HS); man.root.position.copy(r.pos); man.root.rotation.y = r.yaw; man.root.updateMatrixWorld(true);
   const a = new HiderAgent({ id: 'ai_' + name, name, isPlayer: false, _man: man, _canvas: canvas, pose, nook, cy: Math.max(0.2, r.headY * 0.5) });
   a.stampQueue = 5; // camouflage jobs (60% each), one per frame (see ROUND.update)
   return a;
@@ -3637,7 +3642,7 @@ const TOOLS = {
     const envD = Math.min(envDist, env ? env.distance : 99);
     const od = { o: origin.toArray(), d: dir.toArray() };
     if (hh && hh.distance <= envD + 0.05) return { hider: hiders.find((h) => h.man.meshes.includes(hh.object)), point: hh.point, ...od };
-    const d = Math.min(envD, 25); return { hider: null, point: origin.clone().addScaledVector(dir, d), ...od };
+    const d = Math.min(envD, 25); return { hider: null, point: origin.clone().addScaledVector(dir, d), normal: env && env.distance <= envDist + 0.01 && env.face ? env.face.normal.clone().transformDirection(env.object.matrixWorld) : null, ...od };
   },
   // animated hand-drawn red marker scribble: 2-3 wobbly overlapping loops around the hider, drawn over 0.6 s, kept 4 s
   scribble(center, size, viewCam) {
@@ -3656,7 +3661,7 @@ const TOOLS = {
     FX.push({ t: 0, life: 4, update(dt) { this.t += dt; g.instanceCount = Math.floor(Math.min(1, this.t / 0.6) * n); m.opacity = this.t > 3.4 ? Math.max(0, (4 - this.t) / 0.6) : 1; }, done() { scene.remove(line); g.dispose(); m.dispose(); } });
   },
   missPop(screenX, screenY) {
-    const el = document.createElement('div'); el.className = 'missPop'; el.textContent = '✗ −5s'; el.style.left = screenX + 'px'; el.style.top = screenY + 'px';
+    const el = document.createElement('div'); el.className = 'missPop'; el.textContent = '✗ −2s'; el.style.left = screenX + 'px'; el.style.top = screenY + 'px';
     document.body.appendChild(el); setTimeout(() => el.remove(), 1200); AUDIO.sfx('buzz');
   },
   // expanding ring on the floor around the seeker (visual for the Scan Pulse)
@@ -3700,12 +3705,13 @@ const OUTLINE = {
 
 // ---- AI SEEKER: patrol nooks + walkways along A* paths, study spots, accumulate suspicion from DETECT, investigate, tag.
 class SeekerAI {
-  constructor(name, spawn, idx, diff) {
+  constructor(name, spawn, idx, diff, opts = {}) {
     this.name = name; this.isPlayer = false; this.points = 0; this.tags = 0; this.misses = 0; this.scans = 2; this.idx = idx;
     this.D = DIFFICULTY[diff] || DIFFICULTY.normal;
     this.mat = new THREE.MeshStandardMaterial({ color: idx ? 0x3B3046 : 0x2E3A4A, roughness: 0.55 });
+    if (opts.material) this.mat = opts.material; this.infected = !!opts.infected;
     this.man = new Mannequin(this.mat); ALL_MANS.add(this.man); scene.add(this.man.root);
-    this.man.meshes.forEach((m) => m.layers.disable(2));
+    this.man.meshes.forEach((m) => m.layers.disable(2)); BLASTER.equip(this.man, this.infected); if (this.infected) BLASTER.glow(this.man);
     this.pos = new THREE.Vector3(spawn.x, 0, spawn.z); this.yaw = Math.PI; this.look = this.yaw; this.pitch = -0.08;
     this.cam = new THREE.PerspectiveCamera(this.D.fov, 16 / 9, 0.1, 40);
     this.flash = TOOLS.makeFlashlight(idx === 0); this.flashOn = false;
@@ -3784,6 +3790,7 @@ class SeekerAI {
   // fire a tag ray at a world point (AI "click"); wrong guesses and misses cost 5 s
   shoot(point, guess) {
     const o = this.eye(), dir = point.clone().sub(o).normalize(), res = TOOLS.tagRay(o, dir);
+    BLASTER.worldShot(BLASTER.muzzleOf(this.man) || o, res.point, res.normal, this.infected);
     ROUND.tagAttempt(this, res, null);
     if (!res.hider && this.target && !guess) this.susp.set(this.target, (this.susp.get(this.target) || 0) * 0.5);
   }
@@ -3796,7 +3803,7 @@ class SeekerAI {
   }
   animate(dt) {
     this.phase += dt * (this.speed / 0.68) * Math.PI;
-    walkOverlay(STAND_FRAME, this.tmp, this.phase, clamp(this.speed / 3, 0, 1), false);
+    walkOverlay(STAND_FRAME, this.tmp, this.phase, clamp(this.speed / 3, 0, 1), false); holdGunPose(this.tmp);
     blendFrames(this.frame, this.frame, this.tmp, 1 - Math.exp(-dt * 14));
     this.man.apply(this.frame); this.man.root.position.copy(this.pos); this.man.root.rotation.y = this.yaw;
     if (this.man.parts.neck) { let a = this.look - this.yaw; a = Math.atan2(Math.sin(a), Math.cos(a)); this.man.parts.neck.rotation.y = clamp(a, -1, 1); }
@@ -3841,16 +3848,19 @@ class SeekerPlayer {
     if (dark && !this.wasDark) this.flashManual = null; this.wasDark = dark; // auto-on again on entering a dark area
     this.zoom = lerp(this.zoom, INPUT.buttons & 2 ? 1 : 0, 1 - Math.exp(-dt * 10));
     camera.fov = lerp(70, 45, this.zoom); camera.updateProjectionMatrix();
-    camera.position.set(this.pos.x, 1.55, this.pos.z); camera.rotation.set(this.pitch, this.yaw + Math.PI, 0, 'YXZ');
+    if (may && INPUT.locked && (INPUT.buttons & 1)) this.tag(innerWidth / 2, innerHeight / 2); // hold to keep firing (3/s)
+    camera.position.set(this.pos.x, 1.5, this.pos.z); camera.rotation.set(this.pitch, this.yaw + Math.PI, 0, 'YXZ');
     camera.updateMatrixWorld();
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     this.flash.position.copy(camera.position).addScaledVector(f, 0.2).add(new THREE.Vector3(0, -0.15, 0)); this.flash.target.position.copy(camera.position).addScaledVector(f, 6);
     this.flash.intensity = lerp(this.flash.intensity, this.flashOn ? 40 : 0, 1 - Math.exp(-dt * 12)); this.flash.shadow.autoUpdate = this.flash.intensity > 0.5;
   }
   tag(sx, sy) {
-    if (ROUND.phase !== 'seek') return;
+    if (ROUND.phase !== 'seek' || GAME.time < (this.nextShot || 0)) return;
+    this.nextShot = GAME.time + 1 / 3; // 3 shots per second
     const ndc = new THREE.Vector2(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1), rc = new THREE.Raycaster(); rc.setFromCamera(ndc, camera);
-    ROUND.tagAttempt(this, TOOLS.tagRay(rc.ray.origin, rc.ray.direction), [sx, sy]);
+    const res = TOOLS.tagRay(rc.ray.origin, rc.ray.direction);
+    BLASTER.fpShot(res, this.infected); ROUND.tagAttempt(this, res, [sx, sy]);
   }
   scan() { if (this.scans <= 0 || ROUND.phase !== 'seek') return; if (ROUND.online) { NET.send({ type: 'scan' }); TOOLS.pulseRing(this.pos); return; } this.scans--; TOOLS.pulseRing(this.pos); for (const h of ROUND.hiders) if (h.alive && GAME.time - h.lastActivity <= 3 && h.pos.distanceTo(this.pos) < 20) h.reveal = 2; HUD.update(); }
 }
@@ -3863,7 +3873,7 @@ const ROUND = {
   active: false, phase: 'idle', t: 0, mode: 'hider', hiders: [], seekers: [], roundNo: 0, totals: new Map(), job: 0,
   start(opts) {
     this.cleanup(); this.online = false;
-    Object.assign(this, { active: true, mode: opts.mode, mapId: opts.mapId, hideTime: opts.hide, seekTime: opts.seek, diff: opts.difficulty, opts });
+    Object.assign(this, { active: true, gameMode: opts.gameMode || 'classic', mode: opts.mode, mapId: opts.mapId, hideTime: opts.hide, seekTime: opts.seek, diff: opts.difficulty, opts });
     this.roundNo++; this.feedEl = $('feed'); this.feedEl.innerHTML = '';
     loadMap(opts.mapId);
     const map = GAME.map, rnd = mulberry32(Date.now() & 0xffff), sp = [...map.spawns.hiders].sort(() => rnd() - 0.5);
@@ -3871,13 +3881,14 @@ const ROUND = {
     if (this.mode === 'hider') {
       const s = sp[0]; GAME.player.teleport(s.x, s.z, map.startYaw); GAME.player.out = false; GAME.player.man.root.visible = true;
       PAINT.canvas.clear(); PAINT.canvas.undoStack.length = 0; STAMP.readyAt = 0; CAM.paint.everLocked = false;
-      this.hiders.push(new HiderAgent({ id: 'you', name: 'You', isPlayer: true, cy: 0.85 }));
+      this.hiders.push(new HiderAgent({ id: 'you', name: 'You', isPlayer: true, cy: 0.55 }));
     } else { GAME.player.man.root.visible = false; GAME.player.out = true; }
     const nooks = [...map.nooks].sort(() => rnd() - 0.5);
     for (let i = 0; i < opts.aiHiders; i++) this.hiders.push(makeAIHider(NAMES.hiders[i], nooks[i], rnd));
     // seekers: AI seekers (+ the human in seeker practice)
-    if (this.mode === 'seeker') { this.human = new SeekerPlayer(map.spawns.seekers[0]); this.seekers.push(this.human); }
-    for (let i = 0; i < opts.aiSeekers; i++) { const s = map.spawns.seekers[(i + (this.mode === 'seeker' ? 1 : 0)) % 2]; this.seekers.push(new SeekerAI(NAMES.seekers[i], s, i, opts.difficulty)); }
+    const inf = this.gameMode === 'infection'; // Infection: the starting seeker(s) are "the infected" (green paint + glow)
+    if (this.mode === 'seeker') { this.human = new SeekerPlayer(map.spawns.seekers[0]); this.human.infected = inf; this.seekers.push(this.human); }
+    for (let i = 0; i < opts.aiSeekers; i++) { const s = map.spawns.seekers[(i + (this.mode === 'seeker' ? 1 : 0)) % 2]; this.seekers.push(new SeekerAI(NAMES.seekers[i], s, i, opts.difficulty, { infected: inf })); }
     this.phase = 'hide'; this.t = this.hideTime; this.lastSec = -1;
     GAME.state = 'play'; HUD.show(true); HUD.update(); $('results').classList.add('hidden');
     this.banner(this.mode === 'hider' ? 'HIDE!' : 'Blindfolded...', this.mode === 'hider' ? 'Find a spot, pose (Q) and paint yourself (E)' : 'The hiders are hiding. Get ready.');
@@ -3887,7 +3898,7 @@ const ROUND = {
   cleanup() {
     for (const h of this.hiders) if (!h.isPlayer) h.dispose();
     for (const s of this.seekers) s.dispose();
-    this.hiders = []; this.seekers = []; this.human = null; clearFX();
+    this.hiders = []; this.seekers = []; this.human = null; clearFX(); BLASTER.clearSplats();
     if (GAME.paintMode) exitPaint(true);
     camera.fov = CFG.cam.fov; camera.updateProjectionMatrix();
   },
@@ -3905,7 +3916,7 @@ const ROUND = {
   },
   startSeekVisuals() {
     $('blindfold').classList.add('hidden'); POSE_UI.close(false); POSE_UI.cancelPlacement(); updateCrosshair();
-    this.banner('SEEK!', this.mode === 'hider' ? 'Freeze! Seekers are coming. Paint touch-ups shimmer.' : 'Find them: click to tag, R scan, F flashlight, right mouse zoom');
+    this.banner('SEEK!', this.mode === 'hider' ? 'Seekers are armed! Keep moving or stay still - fresh paint shimmers.' : 'Find them: click to tag, R scan, F flashlight, right mouse zoom');
     AUDIO.sfx('sting');
   },
   snapPlayer() {
@@ -3919,11 +3930,13 @@ const ROUND = {
     if (res.hider && res.hider.alive) {
       const h = res.hider; h.alive = false; h.taggedBy = seeker.name; h.tagT = this.seekTime - this.t; seeker.tags++; seeker.points += 100;
       TOOLS.scribble(h.center, (h.cy || 0.8) * 1.4 + 0.3, seeker.isPlayer ? camera : seeker.cam);
-      AUDIO.sfx('tag'); this.feed(`${seeker.name} tagged ${h.name}!`, 'tag');
+      AUDIO.sfx('tag');
+      if (this.gameMode === 'infection') { this.feed(`${seeker.name} infected ${h.name}!`, 'tag'); this.infect(h); if (!this.hiders.some((x) => x.alive)) this.end('infected'); HUD.update(); return; }
+      this.feed(`${seeker.name} tagged ${h.name}!`, 'tag');
       if (h.isPlayer) { GAME.player.out = true; if (GAME.paintMode) exitPaint(true); POSE_UI.close(false); this.spectate = seeker; this.banner('TAGGED', `${seeker.name} found you. Spectating...`); }
       if (!this.hiders.some((x) => x.alive)) { const left = Math.ceil(this.t); for (const s of this.seekers) s.points += 25 * left; this.end('seekers'); }
     } else {
-      this.t = Math.max(0, this.t - 5); seeker.misses++; this.feed(`${seeker.name} missed (−5s)`, 'miss');
+      this.t = Math.max(0, this.t - 2); seeker.misses++; this.feed(`${seeker.name} missed (−2s)`, 'miss');
       if (screen) TOOLS.missPop(screen[0], screen[1]);
       else if (this.mode === 'hider' && !GAME.player.out) { const v = res.point.clone().project(camera); if (v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1) TOOLS.missPop((v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight); else AUDIO.sfx('buzz'); }
     }
@@ -3943,7 +3956,7 @@ const ROUND = {
       // detection: round-robin one (AI seeker, hider) pair every 3rd frame
       const ais = this.seekers.filter((s) => !s.isPlayer), alive = this.hiders.filter((h) => h.alive);
       if (ais.length && alive.length && (this.job++ % 4 === 0)) { const k = Math.floor(this.job / 4); const s = ais[k % ais.length], h = alive[Math.floor(k / ais.length) % alive.length]; s.detect(h, 4 * dt * ais.length * alive.length); }
-      if (this.t <= 0) { this.t = 0; this.end('hiders'); return; }
+      if (this.t <= 0) { this.t = 0; this.end(this.gameMode === 'infection' ? 'survivors' : 'hiders'); return; }
     }
     for (const s of this.seekers) s.update(dt);
     // shimmer on recently painted hiders (SEEK touch-ups are visible for ~1.5 s)
@@ -3976,8 +3989,9 @@ const ROUND = {
   onPaint() { const h = this.playerHider; if (!h || this.phase !== 'seek') return; h.shimmerUntil = GAME.time + 1.5; h.lastAct = GAME.time; },
   end(winner) {
     this.phase = 'end'; this.winner = winner;
-    for (const h of this.hiders) { h.points += Math.floor(h.survived); if (h.alive) h.points += 100; if (!h.snapshot) h.snapshot = h.isPlayer ? this.snapPlayer() : null; }
-    for (const p of [...this.hiders, ...this.seekers]) this.totals.set(p.name, (this.totals.get(p.name) || 0) + p.points);
+    for (const h of this.hiders) { h.points += Math.floor(h.survived); if (h.alive) h.points += this.gameMode === 'infection' ? 150 : 100; if (!h.snapshot) h.snapshot = h.isPlayer ? this.snapPlayer() : null; }
+    for (const sk of this.seekers) if (sk.wasHider) { sk.wasHider.points += sk.points; sk.wasHider.infTags = sk.tags; sk.points = 0; } // infected seekers score on their hider row
+    for (const p of [...this.hiders, ...this.seekers.filter((x) => !x.wasHider)]) this.totals.set(p.name, (this.totals.get(p.name) || 0) + p.points);
     if (GAME.paintMode) exitPaint(true);
     AUDIO.sfx(winner === 'hiders' ? 'win' : 'tag');
     const roundNo = this.roundNo; setTimeout(() => { if (this.phase === "end" && this.roundNo === roundNo) RESULTS.show(); }, 900);
@@ -3994,9 +4008,9 @@ const HUD = {
     el.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
     el.classList.toggle('urgent', ROUND.phase === 'seek' && t <= 30);
     $('phaseLbl').textContent = ROUND.phase === 'hide' ? 'HIDE PHASE' : ROUND.phase === 'seek' ? 'SEEK PHASE' : 'ROUND OVER';
-    $('roleBadge').textContent = ROUND.mode === 'hider' ? (GAME.player.out ? 'SPECTATING' : 'HIDER') : 'SEEKER';
+    $('roleBadge').textContent = ROUND.mode === 'hider' ? (GAME.player.out ? 'SPECTATING' : 'HIDER') : ROUND.human && ROUND.human.infected ? 'INFECTED' : 'SEEKER';
     $('roleBadge').style.background = ROUND.mode === 'hider' ? '#26A69A' : '#E5484D';
-    $('hidersLeft').textContent = `${ROUND.hiders.filter((h) => h.alive).length} / ${ROUND.hiders.length} hiders left`;
+    $('hidersLeft').textContent = ROUND.gameMode === 'infection' ? `Infected ${ROUND.seekers.length} / Survivors ${ROUND.hiders.filter((h) => h.alive).length}` : `${ROUND.hiders.filter((h) => h.alive).length} / ${ROUND.hiders.length} hiders left`;
     const h = ROUND.human; $('pips').classList.toggle('hidden', !h);
     if (h) $('pips').innerHTML = 'SCAN ' + [0, 1].map((i) => `<i class="${i < h.scans ? 'on' : ''}"></i>`).join('');
     $('blindCount').textContent = t;
@@ -4008,15 +4022,15 @@ const RESULTS = {
   show() {
     GAME.state = 'results'; if (INPUT.locked) { INPUT.intentionalUnlock = true; document.exitPointerLock(); }
     const R = ROUND, el = $('results');
-    $('resTitle').textContent = R.winner === 'hiders' ? 'Hiders win!' : 'Seekers win!';
-    $('resTitle').style.color = R.winner === 'hiders' ? '#26A69A' : '#E5484D';
+    $('resTitle').textContent = WIN_TITLES[R.winner] || 'Round over';
+    $('resTitle').style.color = R.winner === 'hiders' || R.winner === 'survivors' ? '#26A69A' : R.winner === 'infected' ? '#5BB65A' : '#E5484D';
     $('resCards').innerHTML = R.hiders.map((h) => `<div class="rcard ${h.alive ? 'alive' : 'out'}">
       ${h.snapshot ? `<img src="${h.snapshot}" alt="painted look of ${h.name}">` : '<div class="noimg"></div>'}
-      <b>${h.name}</b><span>${h.alive ? 'Survived!' : `Tagged by ${h.taggedBy} at ${fmtT(h.tagT)}`}</span>
+      <b>${h.name}</b><span>${h.alive ? 'Survived!' : `${h.infected ? 'Infected' : 'Tagged'} by ${h.taggedBy} at ${fmtT(h.tagT)}`}</span>
       <span>Survived ${fmtT(h.survived)} · +${Math.floor(h.survived)} pts</span>
-      <span>${h.nerves ? `Nerves of Steel ×${h.nerves} (+${h.nerves * 50})` : 'No close calls'}${h.alive ? ' · +100 survival' : ''}</span>
+      <span>${h.nerves ? `Nerves of Steel ×${h.nerves} (+${h.nerves * 50})` : 'No close calls'}${h.alive ? ` · +${R.gameMode === 'infection' ? 150 : 100} survival` : ''}</span>
       <em>${h.points} pts</em></div>`).join('');
-    const rows = [...R.hiders.map((h) => ({ n: h.name, r: 'Hider', p: h.points })), ...R.seekers.map((s) => ({ n: s.name, r: 'Seeker', p: s.points, x: `${s.tags} tags, ${s.misses} misses` }))].sort((a, b) => b.p - a.p);
+    const rows = [...R.hiders.map((h) => ({ n: h.name, r: h.infected ? 'Infected' : 'Hider', p: h.points, x: h.infected ? `${h.infTags || 0} infections` : '' })), ...R.seekers.filter((s) => !s.wasHider).map((s) => ({ n: s.name, r: 'Seeker', p: s.points, x: `${s.tags} tags, ${s.misses} misses` }))].sort((a, b) => b.p - a.p);
     $('resBoard').innerHTML = '<tr><th>Player</th><th>Role</th><th>Round</th><th>Total</th></tr>' + rows.map((r) => `<tr><td>${r.n}</td><td>${r.r}${r.x ? ` <small>(${r.x})</small>` : ''}</td><td>${r.p}</td><td>${R.totals.get(r.n) || 0}</td></tr>`).join('');
     $('rNext').textContent = 'Next round'; $('rLobby').textContent = 'Lobby';
     el.classList.remove('hidden'); HUD.show(false); AUDIO.music(false);
@@ -4024,11 +4038,11 @@ const RESULTS = {
 };
 RESULTS.showOnline = function (m) {
   GAME.state = 'results'; if (INPUT.locked) { INPUT.intentionalUnlock = true; document.exitPointerLock(); }
-  $('resTitle').textContent = m.winner === 'hiders' ? 'Hiders win!' : 'Seekers win!'; $('resTitle').style.color = m.winner === 'hiders' ? '#26A69A' : '#E5484D';
+  $('resTitle').textContent = WIN_TITLES[m.winner] || 'Round over'; $('resTitle').style.color = m.winner === 'hiders' || m.winner === 'survivors' ? '#26A69A' : m.winner === 'infected' ? '#5BB65A' : '#E5484D';
   $('resCards').innerHTML = m.hiders.map((h) => {
     const img = (m.looks && m.looks[h.id]) || (h.id === NET.id && ROUND.playerHider && ROUND.playerHider.snapshot);
     return `<div class="rcard ${h.alive ? 'alive' : 'out'}">${img ? `<img src="${img}" alt="painted look">` : '<div class="noimg"></div>'}<b>${escapeHtml(h.name)}</b>
-      <span>${h.alive ? 'Survived!' : `Tagged by ${escapeHtml(h.taggedBy)} at ${fmtT(h.tagT)}`}</span><span>Survived ${fmtT(h.survived)}</span>
+      <span>${h.alive ? 'Survived!' : `${h.infected ? 'Infected' : 'Tagged'} by ${escapeHtml(h.taggedBy)} at ${fmtT(h.tagT)}`}</span><span>Survived ${fmtT(h.survived)}</span>
       <span>${h.nerves ? `Nerves of Steel x${h.nerves}` : 'No close calls'}</span><em>${h.points} pts</em></div>`;
   }).join('');
   const rows = [...m.hiders, ...m.seekers].sort((a, b) => b.points - a.points);
@@ -4101,6 +4115,7 @@ const AUDIO = {
     if (!this.ctx) return; const t = this.ctx.currentTime, d = this.sfxG, mf = (m) => 440 * Math.pow(2, (m - 69) / 12);
     switch (name) {
       case 'click': this.tone('square', 880, t, 0.05, 0.05, d); break;
+      case 'pop': this.tone('sine', 520, t, 0.07, 0.16, d); this.tone('sine', 260, t, 0.1, 0.1, d); this.hiss(t, 0.05, 0.14, 1600, 2, d); break;
       case 'swish': this.hiss(t, 0.12, 0.08, 1800, 1.2, d, 3200); break;
       case 'scribble': for (let i = 0; i < 6; i++) this.hiss(t + i * 0.09, 0.08, 0.18, 2500 + (i % 2) * 900, 3, d); break;
       case 'tag': [72, 76, 79, 84].forEach((n, i) => this.tone('sawtooth', mf(n), t + i * 0.06, 0.4, 0.06, d)); break;
@@ -4218,7 +4233,8 @@ const LOBBY = {
   start() {
     this.read(); MENU.show(null); $('start').classList.add('hidden');
     const mode = this.mode;
-    ROUND.start({ mode, mapId: this.map, hide: SETTINGS.hideTime, seek: SETTINGS.seekTime, aiSeekers: SETTINGS.aiSeekers, aiHiders: SETTINGS.aiHiders, difficulty: SETTINGS.difficulty });
+    const gm = $('lMode').value;
+    ROUND.start({ gameMode: gm, mode, mapId: this.map, hide: SETTINGS.hideTime, seek: SETTINGS.seekTime, aiSeekers: gm === 'infection' ? (mode === 'seeker' ? 0 : 1) : SETTINGS.aiSeekers, aiHiders: SETTINGS.aiHiders, difficulty: SETTINGS.difficulty });
     requestLock(); renderer.domElement.focus();
   },
 };
@@ -4332,7 +4348,7 @@ class RemoteHider extends HiderAgent {
   constructor(p) {
     const canvas = new PaintCanvas(1024); canvas.noUndo = true;
     const man = new Mannequin(canvas.material); scene.add(man.root); ALL_MANS.add(man);
-    super({ id: p.id, name: p.name, isPlayer: false, isRemote: true, _man: man, _canvas: canvas, cy: 0.85 });
+    super({ id: p.id, name: p.name, isPlayer: false, isRemote: true, _man: man, _canvas: canvas, cy: 0.55 }); man.root.scale.setScalar(HS);
     this.tgt = null; this.phase = 0; this.frame = makeFrame(); copyFrame(this.frame, STAND_FRAME); this.tmp = makeFrame(); this.poseCache = {};
     man.root.visible = false; this.alive = p.alive !== false;
   }
@@ -4344,11 +4360,11 @@ class RemoteHider extends HiderAgent {
     r.position.lerp(new THREE.Vector3(s.x, s.y, s.z), k); let dy = s.yaw - r.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); r.rotation.y += dy * k;
     if (s.pose && POSES[s.pose]) { // posed: same frame the owner sees (pelvis height from the owner, e.g. on a seat)
       const key = s.pose + ':' + s.py.toFixed(3);
-      let f = this.poseCache[key]; if (!f) { f = RIG.evaluate(POSES[s.pose]).frame; f.pelvis.y = s.py; this.poseCache[key] = f; this.cy = Math.max(0.2, RIG.bounds(f).head.y * 0.5); }
+      let f = this.poseCache[key]; if (!f) { f = RIG.evaluate(POSES[s.pose]).frame; f.pelvis.y = s.py; this.poseCache[key] = f; this.cy = Math.max(0.15, RIG.bounds(f).head.y * 0.5 * HS); }
       blendFrames(this.frame, this.frame, f, 1 - Math.exp(-dt * 10));
     } else {
-      this.cy = s.cr ? 0.6 : 0.85;
-      this.phase += dt * (s.sp / (s.cr ? 0.5 : 0.68)) * Math.PI;
+      this.cy = (s.cr ? 0.6 : 0.85) * HS;
+      this.phase += dt * (s.sp / ((s.cr ? 0.5 : 0.68) * HS)) * Math.PI;
       walkOverlay(s.cr ? CROUCH_FRAME : STAND_FRAME, this.tmp, this.phase, clamp(s.sp / 3.2, 0, 1), s.sp > 3.7);
       blendFrames(this.frame, this.frame, this.tmp, 1 - Math.exp(-dt * 14));
     }
@@ -4358,7 +4374,8 @@ class RemoteHider extends HiderAgent {
 class RemoteSeeker {
   constructor(p) {
     this.id = p.id; this.name = p.name; this.isPlayer = false; this.isRemote = true; this.tags = 0; this.misses = 0; this.points = 0;
-    this.mat = new THREE.MeshStandardMaterial({ color: 0x2E3A4A, roughness: 0.55 }); this.man = new Mannequin(this.mat); this.man.meshes.forEach((m) => m.layers.disable(2));
+    this.infected = !!p.infected; this.mat = p.material || new THREE.MeshStandardMaterial({ color: 0x2E3A4A, roughness: 0.55 }); this.man = new Mannequin(this.mat); this.man.meshes.forEach((m) => m.layers.disable(2));
+    BLASTER.equip(this.man, this.infected); if (this.infected) BLASTER.glow(this.man);
     ALL_MANS.add(this.man); scene.add(this.man.root); this.man.root.visible = false;
     this.pos = new THREE.Vector3(); this.yaw = 0; this.look = 0; this.pitch = 0; this.frame = makeFrame(); this.tmp = makeFrame(); this.phase = 0; this.sp = 0;
     this.flash = TOOLS.makeFlashlight(false);
@@ -4369,7 +4386,7 @@ class RemoteSeeker {
     if (!man.root.visible) { man.root.visible = true; this.pos.set(s.x, 0, s.z); }
     const before = this.pos.clone(); this.pos.lerp(new THREE.Vector3(s.x, 0, s.z), k); this.sp = lerp(this.sp, before.distanceTo(this.pos) / Math.max(dt, 1e-3), 0.2);
     let dy = s.yaw - this.look; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); this.look += dy * k; this.yaw = this.look; this.pitch = s.pitch;
-    this.phase += dt * (this.sp / 0.68) * Math.PI; walkOverlay(STAND_FRAME, this.tmp, this.phase, clamp(this.sp / 3, 0, 1), false); blendFrames(this.frame, this.frame, this.tmp, 1 - Math.exp(-dt * 14));
+    this.phase += dt * (this.sp / 0.68) * Math.PI; walkOverlay(STAND_FRAME, this.tmp, this.phase, clamp(this.sp / 3, 0, 1), false); holdGunPose(this.tmp); blendFrames(this.frame, this.frame, this.tmp, 1 - Math.exp(-dt * 14));
     man.apply(this.frame); man.root.position.copy(this.pos); man.root.rotation.y = this.look;
     const f = new THREE.Vector3(Math.sin(this.look), 0, Math.cos(this.look));
     this.flash.position.set(this.pos.x + f.x * 0.25, 1.35, this.pos.z + f.z * 0.25); this.flash.target.position.set(this.pos.x + f.x * 6, 1.35 + Math.sin(this.pitch) * 6 - 0.4, this.pos.z + f.z * 6);
@@ -4379,7 +4396,10 @@ class RemoteSeeker {
 }
 
 const ONLINE = {
-  agent(id) { return id === NET.id ? (ROUND.playerHider || null) : ROUND.hiders.find((h) => h.id === id) || ROUND.seekers.find((s) => s.id === id); },
+  agent(id) {
+    if (id === NET.id) return (ROUND.playerHider && ROUND.playerHider.alive ? ROUND.playerHider : ROUND.human) || ROUND.playerHider || null;
+    return ROUND.hiders.find((h) => h.id === id && h.alive) || ROUND.seekers.find((s) => s.id === id) || ROUND.hiders.find((h) => h.id === id);
+  },
   // ---- the server started a round (or we rejoined one mid-round)
   onPhase(m) {
     if (m.resume && ROUND.online && ROUND.roundNo === m.roundNo) { ROUND.t = m.t; return; } // socket blip: keep playing where we are
@@ -4392,7 +4412,7 @@ const ONLINE = {
   startRound(m) {
     $('results').classList.add('hidden'); NETUI.show(null); MENU.show(null); $('start').classList.add('hidden');
     ROUND.cleanup(); ROUND.online = true; ROUND.active = true; ROUND.mapId = m.map; ROUND.roundNo = m.roundNo; ROUND.feedEl = $('feed'); ROUND.feedEl.innerHTML = '';
-    ROUND.hideTime = NET.room.settings.hide; ROUND.seekTime = NET.room.settings.seek;
+    ROUND.hideTime = NET.room.settings.hide; ROUND.seekTime = NET.room.settings.seek; ROUND.gameMode = NET.room.settings.mode || 'classic';
     loadMap(m.map);
     const map = GAME.map, me = NET.me, role = me ? me.role : 'spectator';
     ROUND.mode = role === 'seeker' ? 'seeker' : 'hider';
@@ -4402,8 +4422,8 @@ const ONLINE = {
         if (p.role === 'hider') {
           const s = m.resume && m.self ? m.self : map.spawns.hiders[p.spawn % map.spawns.hiders.length]; GAME.player.teleport(s.x, s.z, m.resume && m.self ? m.self.yaw : map.startYaw); // rejoin: back where the server last saw us GAME.player.out = !p.alive; GAME.player.man.root.visible = true;
           if (!m.resume) { PAINT.canvas.clear(); PAINT.canvas.undoStack.length = 0; } STAMP.readyAt = 0; CAM.paint.everLocked = false;
-          ROUND.hiders.push(new HiderAgent({ id: p.id, name: p.name + ' (you)', isPlayer: true, cy: 0.85, alive: p.alive }));
-        } else { ROUND.human = new SeekerPlayer(map.spawns.seekers[p.spawn % 2]); ROUND.human.id = p.id; ROUND.human.name = p.name + ' (you)'; ROUND.seekers.push(ROUND.human); }
+          ROUND.hiders.push(new HiderAgent({ id: p.id, name: p.name + ' (you)', isPlayer: true, cy: 0.55, alive: p.alive }));
+        } else { ROUND.human = new SeekerPlayer(map.spawns.seekers[p.spawn % 2]); ROUND.human.infected = !!p.infected; ROUND.human.id = p.id; ROUND.human.name = p.name + ' (you)'; ROUND.seekers.push(ROUND.human); }
       } else if (p.role === 'hider') ROUND.hiders.push(new RemoteHider(p));
       else ROUND.seekers.push(new RemoteSeeker(p));
     }
@@ -4425,8 +4445,8 @@ const ONLINE = {
   },
   // hit capsule for server-side tag validation: segment along the posed body's longest axis + radius (world space)
   capsule() {
-    const p = GAME.player, b = RIG.bounds(p.man.frame), ext = [b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ], ax = ext.indexOf(Math.max(...ext));
-    const sorted = [...ext].sort((a, c) => c - a), r = clamp(sorted[1] / 2, 0.12, 0.45), c = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2], half = Math.max(0, ext[ax] / 2 - r);
+    const p = GAME.player, b = fpScaled(RIG.bounds(p.man.frame)), ext = [b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ], ax = ext.indexOf(Math.max(...ext));
+    const sorted = [...ext].sort((a, c) => c - a), r = clamp(sorted[1] / 2, 0.08, 0.3), c = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2], half = Math.max(0, ext[ax] / 2 - r);
     const A = [...c], B = [...c]; A[ax] -= half; B[ax] += half;
     const toW = (q) => { const v = new THREE.Vector3(...q).applyAxisAngle(new THREE.Vector3(0, 1, 0), p.yaw).add(p.pos); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; };
     return [...toW(A), ...toW(B), +r.toFixed(3)];
@@ -4467,14 +4487,16 @@ const ONLINE = {
   },
   onTagged(m) {
     const h = this.agent(m.target), s = this.agent(m.by);
+    if (m.by !== NET.id) BLASTER.remoteShot(m);
     if (h) { h.alive = false; const cam = ROUND.mode === 'seeker' ? camera : (s && s.man ? { matrixWorld: camera.matrixWorld } : camera); TOOLS.scribble(h.center, (h.cy || 0.8) * 1.4 + 0.3, camera); }
     if (s && s === ROUND.human) s.tags++;
     AUDIO.sfx('tag'); ROUND.feed(`${m.byName} tagged ${m.targetName}!`, 'tag');
+    if (m.infected && h) { ROUND.feed(`${m.byName} infected ${m.targetName}!`, 'tag'); ROUND.infect(h, m.target === NET.id ? { id: NET.id, name: NET.name + ' (you)' } : { id: m.target, name: m.targetName }); HUD.update(); return; }
     if (m.target === NET.id) { GAME.player.out = true; if (GAME.paintMode) exitPaint(true); POSE_UI.close(false); ROUND.spectate = s && !s.isPlayer ? s : ROUND.seekers.find((x) => !x.isPlayer); ROUND.banner('TAGGED', `${m.byName} found you. Spectating...`); }
     HUD.update();
   },
   onMiss(m) {
-    ROUND.t = m.t; ROUND.feed(`${m.byName} missed (−5s)`, 'miss');
+    ROUND.t = m.t; ROUND.feed(`${m.byName} missed (−2s)`, 'miss'); if (m.by !== NET.id) BLASTER.remoteShot(m);
     if (m.by === NET.id && ROUND._lastShot) TOOLS.missPop(...ROUND._lastShot); else AUDIO.sfx('buzz');
     HUD.update();
   },
@@ -4509,6 +4531,7 @@ const NETUI = {
     click('nStart', () => NET.send({ type: 'start' }));
     click('nLeave', () => { NET.leave(); this.show(null); MENU.show('menu'); });
     for (const id of ['nHide', 'nSeek', 'nSeekers']) $(id).addEventListener('change', () => this.pushSettings());
+    $('nMode').addEventListener('change', () => { if ($('nMode').value === 'infection') { $('nHide').value = 60; $('nSeek').value = 240; } this.pushSettings(); });
   },
   async open(mode) {
     this.mode = mode;
@@ -4518,7 +4541,7 @@ const NETUI = {
     $('netEntryTitle').textContent = mode === 'host' ? 'Host an online room' : 'Join with a code';
     this.show('entry');
   },
-  pushSettings(map) { if (!NET.isHost) return; NET.send({ type: 'settings', map: map || NET.room.map, hide: +$('nHide').value, seek: +$('nSeek').value, seekers: +$('nSeekers').value }); },
+  pushSettings(map) { if (!NET.isHost) return; NET.send({ type: 'settings', map: map || NET.room.map, hide: +$('nHide').value, seek: +$('nSeek').value, seekers: +$('nSeekers').value, mode: $('nMode').value }); },
   render() {
     const R = NET.room; if (this.view !== 'room' || !R) return;
     $('nCodeBig').textContent = R.code;
@@ -4529,7 +4552,7 @@ const NETUI = {
       <div class="sw4">${cols.map((c) => `<i style="background:${c}"></i>`).join('')}</div><b>${nm}</b><span>${votes[id] || 0} vote(s)${id === R.map ? ' · host pick' : ''}</span></button>`).join('');
     for (const b of $('nMaps').children) b.onclick = (e) => { e.stopPropagation(); NET.send({ type: 'vote', map: b.dataset.map }); if (NET.isHost) this.pushSettings(b.dataset.map); };
     const host = NET.isHost;
-    for (const id of ['nHide', 'nSeek', 'nSeekers']) $(id).disabled = !host;
+    for (const id of ['nHide', 'nSeek', 'nSeekers', 'nMode']) $(id).disabled = !host; $('nMode').value = R.settings.mode || 'classic';
     if (document.activeElement !== $('nHide')) $('nHide').value = R.settings.hide; if (document.activeElement !== $('nSeek')) $('nSeek').value = R.settings.seek; $('nSeekers').value = R.settings.seekers;
     $('nStart').classList.toggle('hidden', !host); $('nReady').textContent = NET.me && NET.me.ready ? 'Not ready' : 'Ready';
     const n = R.players.filter((p) => p.connected).length;
@@ -4538,13 +4561,124 @@ const NETUI = {
 };
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
+// ------------------------------------------------------------------ 18. PAINT BLASTER (Revision 3) + INFECTION
+// Seekers carry `paint_blaster`: first-person view model (drawn after the world with a cleared depth buffer so it never
+// clips into walls), held in hand_R by AI/remote seeker bodies. Hitscan red pellets: tracer, splat decal (fades after
+// 10 s, max 60), pop sound, 3 shots/s, 25 m, one hit tags; a miss costs 2 s. Infected seekers use green paint + glow.
+const WIN_TITLES = { hiders: 'Hiders win!', seekers: 'Seekers win!', survivors: 'Survivors win!', infected: 'Infected win!' };
+const PAINT_RED = 0xE5484D, PAINT_GREEN = 0x86D23A;
+const GUN_POSE = { upperarm_R: [25, 0, 0], forearm_R: [65, 0, 0], upperarm_L: [62, 0, -28], forearm_L: [28, 0, 0] }; // manifest: level forearm + left reach
+function holdGunPose(f) { for (const [n, d] of Object.entries(GUN_POSE)) f.q[n].copy(RIG.rest[n]).multiply(deltaQuat(d, _q)); return f; }
+class ViewModelPass extends Pass {
+  constructor() { super(); this.needsSwap = false; }
+  render(r, writeBuffer, readBuffer) {
+    if (!BLASTER.visible) return;
+    r.setRenderTarget(readBuffer); const ac = r.autoClear; r.autoClear = false; r.clearDepth(); r.render(BLASTER.scene, BLASTER.cam); r.autoClear = ac;
+  }
+}
+const BLASTER = {
+  visible: false, kick: 0, trig: 0, bob: 0, sway: new THREE.Vector2(), splats: [],
+  init() {
+    const s = this.scene = new THREE.Scene(); s.environment = scene.environment; s.environmentIntensity = 0.6;
+    s.add(new THREE.HemisphereLight(0xFFE8D0, 0x3A2A30, 1.6)); const d = new THREE.DirectionalLight(0xFFF2E0, 2.2); d.position.set(0.5, 1, 0.3); s.add(d);
+    this.cam = new THREE.PerspectiveCamera(70, 16 / 9, 0.01, 10); s.add(this.cam);
+    this.holder = new THREE.Group(); this.cam.add(this.holder);
+    this.gun = this.makeGun(false); this.gun.position.set(0.21, -0.215, -0.52); this.gun.rotation.set(-0.0175, Math.PI + 0.157, 0, 'YXZ'); this.holder.add(this.gun);
+    this.trigger = this.gun.getObjectByName('trigger'); this.muzzle = this.gun.getObjectByName('muzzle');
+    this.puff = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), new THREE.MeshBasicMaterial({ color: PAINT_RED, transparent: true, opacity: 0, depthWrite: false })); this.muzzle.add(this.puff);
+    this.splatGeo = new THREE.CircleGeometry(0.07, 14);
+    this.tracerGeo = new THREE.CylinderGeometry(0.009, 0.009, 1, 6); this.tracerGeo.rotateX(Math.PI / 2); this.tracerGeo.translate(0, 0, 0.5);
+    composer.insertPass(new ViewModelPass(), 1);
+    $('lMode').addEventListener('change', () => { if ($('lMode').value === 'infection') { $('lHide').value = 60; $('lSeek').value = 240; $('lAISeek').value = 1; } });
+  },
+  makeGun(green) {
+    const g = cloneModel('paint_blaster');
+    g.traverse((o) => { if (!o.isMesh) return;
+      if (o.material.name === 'tank_paint') { o.material = o.material.clone(); o.material.color.set(green ? PAINT_GREEN : PAINT_RED); } // per-gun clone (Infection tint)
+      if (o.material.name === 'tank_clear') { o.material.depthWrite = false; o.renderOrder = 1; } });
+    return g;
+  },
+  setTank(gun, green) { gun.traverse((o) => { if (o.isMesh && o.material.name === 'tank_paint') o.material.color.set(green ? PAINT_GREEN : PAINT_RED); }); },
+  equip(man, green) { const g = this.makeGun(green); g.quaternion.set(0, 0.7071, 0.7071, 0); (man.parts.hand_R || man.parts.forearm_R).add(g); man.gun = g; g.traverse((o) => { if (o.isMesh) o.castShadow = true; }); return g; },
+  // sickly green glow outline for infected seekers (inverted hull, visible to everyone)
+  glow(man) {
+    if (!this.glowMat) this.glowMat = new THREE.ShaderMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false,
+      vertexShader: 'void main(){ vec3 p = position + normal * 0.03; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }',
+      fragmentShader: 'void main(){ gl_FragColor = vec4(0.53, 1.0, 0.25, 0.5); }' });
+    for (const m of man.meshes) { const o = new THREE.Mesh(m.geometry, this.glowMat); o.userData.hideForStamp = true; m.add(o); }
+  },
+  muzzleOf(man) { return man && man.gun ? man.gun.getObjectByName('muzzle').getWorldPosition(new THREE.Vector3()) : null; },
+  fpShot(res, green) {
+    this.kick = 1; this.trig = 0.06; this.puff.material.opacity = 0.9; this.puff.scale.setScalar(1); this.puff.material.color.set(green ? PAINT_GREEN : PAINT_RED);
+    this.cam.updateMatrixWorld(); camera.updateMatrixWorld();
+    const mp = this.muzzle.getWorldPosition(new THREE.Vector3()).applyMatrix4(camera.matrixWorld); // view-model space == camera space
+    this.worldShot(mp, res.point, res.normal, green);
+  },
+  worldShot(from, to, normal, green) {
+    const col = green ? PAINT_GREEN : PAINT_RED, mat = new THREE.MeshBasicMaterial({ color: col, toneMapped: false, transparent: true, opacity: 0.95 });
+    const tr = new THREE.Mesh(this.tracerGeo, mat); tr.position.copy(from); tr.lookAt(to); tr.scale.set(1, 1, Math.max(0.05, from.distanceTo(to))); tr.userData.hideForStamp = true; scene.add(tr);
+    FX.push({ t: 0, life: 0.09, update(dt) { this.t += dt; mat.opacity = 0.95 * (1 - this.t / 0.09); }, done() { scene.remove(tr); mat.dispose(); } });
+    if (normal) this.splat(to, normal, col);
+    AUDIO.sfx('pop');
+  },
+  splat(point, normal, col) {
+    const m = new THREE.Mesh(this.splatGeo, new THREE.MeshStandardMaterial({ color: col, roughness: 0.3, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false }));
+    m.position.copy(point).addScaledVector(normal, 0.004); m.lookAt(point.clone().add(normal)); m.rotateZ(Math.random() * 6.28); m.scale.setScalar(0.7 + Math.random() * 0.6);
+    m.userData.hideForStamp = true; scene.add(m); this.splats.push({ m, t: 0 });
+    while (this.splats.length > 60) { const o = this.splats.shift(); scene.remove(o.m); o.m.material.dispose(); }
+  },
+  clearSplats() { for (const o of this.splats) { scene.remove(o.m); o.m.material.dispose(); } this.splats = []; },
+  remoteShot(m) {
+    const s = ONLINE.agent(m.by); if (!s || s.isPlayer || !m.point) return;
+    const to = new THREE.Vector3(...m.point), from = this.muzzleOf(s.man) || (m.o ? new THREE.Vector3(...m.o) : to);
+    this.worldShot(from, to, null, s.infected);
+  },
+  update(dt) {
+    for (const o of this.splats) { o.t += dt; if (o.t > 8.5) o.m.material.opacity = Math.max(0, 1 - (o.t - 8.5) / 1.5); }
+    while (this.splats.length && this.splats[0].t > 10) { const o = this.splats.shift(); scene.remove(o.m); o.m.material.dispose(); }
+    const h = ROUND.human;
+    this.visible = !!(h && isSeeker() && (GAME.state === 'play' || GAME.state === 'paused') && ROUND.phase === 'seek');
+    if (!this.visible) return;
+    this.cam.fov = camera.fov; this.cam.aspect = camera.aspect; this.cam.updateProjectionMatrix();
+    const dy = h.yaw - (this.lastYaw ?? h.yaw), dp = h.pitch - (this.lastPitch ?? h.pitch); this.lastYaw = h.yaw; this.lastPitch = h.pitch;
+    const k = 1 - Math.exp(-dt * 10);
+    this.sway.x = lerp(this.sway.x, clamp(-dy * 1.5, -0.05, 0.05), k); this.sway.y = lerp(this.sway.y, clamp(dp * 1.5, -0.04, 0.04), k);
+    if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].some((c) => INPUT.down(c))) this.bob += dt * 9;
+    this.kick = Math.max(0, this.kick - dt * 9); this.trig = Math.max(0, this.trig - dt);
+    this.holder.position.set(this.sway.x + Math.sin(this.bob) * 0.006, this.sway.y + Math.abs(Math.cos(this.bob)) * 0.006, this.kick * 0.045);
+    this.holder.rotation.set(this.kick * 0.14, 0, 0);
+    if (this.trigger) this.trigger.rotation.x = this.trig > 0 ? 0.349 : 0;
+    this.puff.material.opacity = Math.max(0, this.puff.material.opacity - dt * 6); this.puff.scale.multiplyScalar(1 + dt * 8);
+    this.setTank(this.gun, !!h.infected);
+  },
+};
+// INFECTION: a tagged hider becomes a full-size seeker with a gun where they stood; their paint stays on as a trophy.
+ROUND.infect = function (h, info) {
+  h.alive = false; h.infected = true;
+  const pos = h.pos.clone(), mat = h.canvas.material;
+  if (h.isPlayer) { // the player switches to the seeker view and keeps playing
+    if (GAME.paintMode) exitPaint(true); POSE_UI.close(false); POSE_UI.cancelPlacement();
+    GAME.player.out = true; GAME.player.man.root.visible = false; GAME.player.posed = null;
+    const sp = new SeekerPlayer({ x: pos.x, z: pos.z }); sp.infected = true; sp.yaw = GAME.player.camYaw - Math.PI;
+    if (info) { sp.id = info.id; sp.name = info.name; } else sp.name = 'You';
+    sp.wasHider = h; this.human = sp; this.seekers.push(sp); this.mode = 'seeker';
+    this.banner('INFECTED!', 'You are a seeker now - hunt the survivors'); requestLock(); updateCrosshair();
+  } else {
+    scene.remove(h.man.root); ALL_MANS.delete(h.man);
+    let s;
+    if (this.online) s = new RemoteSeeker({ id: info.id, name: info.name, material: mat, infected: true });
+    else { s = new SeekerAI(h.name, { x: pos.x, z: pos.z }, this.seekers.length + 1, this.diff, { material: mat, infected: true }); s.state = 'patrol'; s.pickPatrol(); }
+    s.pos.copy(pos); s.wasHider = h; this.seekers.push(s);
+  }
+};
+
 // ------------------------------------------------------------------ 11. shell, input, main loop, debug hooks
 function setHint(text) { const h = $('hint'); if (text) { h.textContent = text; h.classList.remove('hidden'); } else h.classList.add('hidden'); }
 const CONTROLS = [
   ['WASD', 'move (posed: shuffle at 1.2 m/s in HIDE)'], ['Shift', 'sprint'], ['C', 'crouch (Ctrl also works, but Ctrl+W closes the browser tab)'], ['Space', 'hop'],
   ['Q (hold)', 'pose wheel - release on a pose; wheel rotates, click locks'], ['X', 'stand up / cancel pose'], ['E', 'paint mode'],
   ['I / Alt+click', 'eyedropper'], ['[ ]', 'brush size'], ['Ctrl+Z / Ctrl+Y', 'undo / redo'], ['V', 'reset paint view'],
-  ['Left click', 'paint / tag'], ['Right click', 'zoom (seeker) / orbit (paint mode)'], ['F', 'flashlight (seeker)'],
+  ['Left click', 'paint (hider) / fire the paint blaster, hold for 3 shots/s (seeker)'], ['Right click', 'zoom (seeker) / orbit (paint mode)'], ['F', 'flashlight (seeker)'],
   ['R', 'scan pulse (seeker, 2 per round)'], ['F3', 'FPS counter'], ['Esc', 'pause'],
 ];
 const isSeeker = () => ROUND.active && ROUND.mode === 'seeker';
@@ -4641,7 +4775,7 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.code === 'KeyY') { PAINT.redo(); return; }
   if (repeat) return;
   if (POSE_UI.open && /^Digit[1-8]$/.test(e.code)) { POSE_UI.setSel(+e.code.slice(5) - 1); POSE_UI.close(true); return; }
-  const posing = !ROUND.active || ROUND.phase === 'hide';
+  const posing = !ROUND.active || ROUND.phase === 'hide' || ROUND.phase === 'seek';
   switch (e.code) {
     case 'KeyE': GAME.paintMode ? exitPaint() : enterPaint(); break;
     case 'KeyQ': if (posing) POSE_UI.openWheel(!INPUT.locked || GAME.paintMode); else toast('Frozen: no posing during SEEK'); break;
@@ -4815,7 +4949,7 @@ function stepFrame(dt, now = performance.now()) {
     for (const h of ROUND.hiders) if (!h.isPlayer) h.canvas.flush();
     PANEL.update();
   }
-  NET.update();
+  NET.update(); BLASTER.update(dt);
   POST.render(dt);
 }
 
@@ -4839,9 +4973,10 @@ window.PNS = {
   // start a round: { mode: 'hider'|'seeker', map: 'gallery'|'guest'|'kitchen', hide, seek, aiSeekers, aiHiders, difficulty }
   round(o = {}) {
     MENU.show(null); $('start').classList.add('hidden'); AUDIO.init();
-    ROUND.start({ mode: o.mode || 'hider', mapId: o.map || 'gallery', hide: o.hide ?? SETTINGS.hideTime, seek: o.seek ?? SETTINGS.seekTime, aiSeekers: o.aiSeekers ?? 2, aiHiders: o.aiHiders ?? 2, difficulty: o.difficulty || 'normal' });
+    ROUND.start({ gameMode: o.gameMode || 'classic', mode: o.mode || 'hider', mapId: o.map || 'gallery', hide: o.hide ?? SETTINGS.hideTime, seek: o.seek ?? SETTINGS.seekTime, aiSeekers: o.aiSeekers ?? 2, aiHiders: o.aiHiders ?? 2, difficulty: o.difficulty || 'normal' });
     return this.info();
   },
+  fire() { if (ROUND.human) { ROUND.human.nextShot = 0; ROUND.human.tag(innerWidth / 2, innerHeight / 2); } return this.info(); }, // seeker: shoot at the crosshair
   skip(sec) { ROUND.t = Math.min(ROUND.t, sec); return this.tick(1); },  // jump the phase timer
   loadMap(id) { loadMap(id); const s = GAME.map.spawns.hiders[0]; GAME.player.teleport(s.x, s.z, GAME.map.startYaw); return this.tick(2); },
   // make an AI seeker walk up to the player and tag them (for testing the tag flow)
@@ -4916,7 +5051,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 0));
   initRigFrames();
   PAINT_MESH.build();
-  STAMP.init(); DETECT.init(); OUTLINE.init();
+  STAMP.init(); DETECT.init(); OUTLINE.init(); BLASTER.init();
   loadMap(GAME.mapId);
   PAINT.canvas = new PaintCanvas(CFG.paint.size);
   PAINT.canvas.onChange = () => ROUND.onPaint();

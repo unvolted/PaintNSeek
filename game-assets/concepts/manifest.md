@@ -4,6 +4,79 @@ Source of truth: `game-assets/brief.md` (sections 0, 3, 6, 7, 10). Every file li
 
 ---
 
+## Revision 3 (2026-11-08): seeker paint blaster
+
+One new asset, `paint_blaster` (brief §10 "Seeker equipment (Revision 3)"). Nothing older changes. Both sheets are code-drawn (same header/grid/callout style as the Revision 2 ortho sheets, no AI images). Every view on both sheets is rendered from **one parametric 3D blockout** with a small z-buffer renderer, so side, top, front, 3/4, first-person and the scale sketch all agree with the numbers below.
+
+### New files
+
+| File | Size | Content |
+|---|---|---|
+| `paint_blaster_ortho.png` | 1800x1340 | SIDE (gun's right side, front ->), TOP, FRONT (down the muzzle) at 1450 px/m with a 0.05 m grid (0.01 fine), plus a 3/4 perspective view. Dimensions in meters, callouts for every part, the empty nodes and pivots (pulled trigger shown as a faint ghost), the Classic red / Infection green tank swatches, an objects-and-nodes table and the material list with hex colors. |
+| `paint_blaster_fp.png` | 1800x1100 | First-person placement in a 16:9 frame (idle, plus a small firing/kick frame with puff, tracer and splat), the exact camera-space placement numbers, and a side-view scale sketch of a full-size 1.6 m seeker mannequin holding it (final Revision 2 mannequin proportions). |
+
+### `paint_blaster`: chunky toy paint blaster (seekers, first and third person)
+
+- **Read:** a party toy, never a real firearm: rounded teal body, coral grip and fore-grip, butter-yellow trim, a fat flared yellow muzzle, a clear dome paint tank on top, chunky bolts and a star sticker. No slide, magazine, rails, ejection port or scope.
+- **Overall size:** 0.420 l (z) x 0.094 w (x) x 0.231 h (y) m (brief: ≈ 0.42 x 0.10 x 0.22). Bounds: x -0.047..0.047, y -0.077..0.154, z -0.120..0.300.
+- **Axes / origin:** gun space = model space. **Origin = grip hand point** (centre of the grip). +Z = barrel / forward, +Y = up, +X = the gun's left side. Symmetric about x = 0.
+- **Triangle budget:** ≤ 2.5k (aim ~1.8k): 12-16 segments on round parts, smooth shading, one UV set.
+
+**Shapes (meters, gun space):**
+
+| Part | Shape and placement | Material |
+|---|---|---|
+| body | rounded box 0.080 w x 0.080 h x 0.270 l, corner radius 0.022; centre (0, 0.068, 0.025) -> y 0.028..0.108, z -0.110..0.160 | `blaster_teal` |
+| rear cap | rounded box 0.068 x 0.068 x 0.024 (r 0.010) at z -0.108 (back face z -0.120) | `trim_butter` |
+| sight fin | small rounded block 0.018 w x 0.020 h x 0.036 l (r 0.007) on top at (0, 0.112, -0.080) | `trim_butter` |
+| grip | rounded box 0.048 w x 0.112 h x 0.044 d (r 0.018), centre (0, -0.016, 0), then tilted **15° back** about the origin (rotation.x +15°, bottom toward -Z) | `grip_coral` |
+| pommel | rounded slab 0.056 x 0.015 x 0.054 (r 0.007) at the grip bottom (centre y -0.067 before the same 15° tilt) | `trim_butter` |
+| fore-grip | rounded box 0.048 x 0.048 x 0.068 (r 0.016) under the front of the body, centre (0, 0.010, 0.128) | `grip_coral` |
+| barrel | cylinder Ø 0.048, axis (x 0, y 0.070), z 0.150..0.258 | `blaster_teal` |
+| barrel ring | ring Ø 0.062, z 0.198..0.218 | `trim_butter` |
+| muzzle flare | lathe: Ø 0.054 at z 0.252 flaring to Ø 0.094 at z 0.293, front lip at z 0.300 | `trim_butter` |
+| bore | open hole Ø 0.062, 0.011 deep (z 0.289..0.300) | `muzzle_dark` |
+| tank collar | short cylinder Ø 0.086, y 0.100..0.114, centred (x 0, z 0.020) | `trim_butter` |
+| bolts | 4 per side (8 total): Ø 0.016 domed studs standing ~0.006 proud of the body side (outer face at x ±0.046), at (y, z) = (0.090, -0.075), (0.090, 0.125), (0.046, -0.075), (0.046, 0.125) | `trim_butter` |
+| trigger guard | one bent tube Ø 0.013 from the body underside at z 0.078 down and back to the grip front (lowest y -0.032) | `trim_butter` |
+| star sticker | 5-point star, outer radius 0.019 (+0.0045 cream border), centred (z 0.030, y 0.068) on both flat body sides | `sticker_pink` (decal on `blaster_teal` or a 2-tri card) |
+| **trigger** (separate) | rounded paddle 0.013 w x 0.048 h x 0.015 d (r 0.006) hanging from the pivot, modeled leaning 10° forward | `grip_coral` |
+| **paint_tank** (separate) | clear hemisphere dome R 0.040 on the collar (base y 0.114, top y 0.154) + inner paint fill R 0.037 filled to 0.026 above the base (~65 % full, flat meniscus) | `tank_clear` + `tank_paint` |
+
+**Objects, nodes and pivots (names are used by the game):**
+
+| Name | Type | Position (gun space) | Notes |
+|---|---|---|---|
+| `paint_blaster` | root object | origin (0, 0, 0) | Body mesh: body, grip, pommel, fore-grip, barrel, ring, muzzle, bore, collar, bolts, guard, stickers. |
+| `paint_tank` | separate mesh, child of root | origin = dome base centre (0, 0.114, 0.020) | Materials `tank_clear` (dome) and `tank_paint` (fill). The game tints only `tank_paint`. |
+| `trigger` | separate mesh, child of root | origin = pivot (0, 0.030, 0.042) | Rotates about local X: rotation.x 0 = rest, **+20° = pulled** (tip swings back toward the grip). |
+| `grip` | empty | (0, 0, 0) | Hand / arm-tip attach point (= origin). |
+| `muzzle` | empty | (0, 0.070, 0.300) | +Z points out of the bore. Tracer start and muzzle-puff position. |
+
+**Materials (one simple PBR material each):**
+
+| Material | Color | Notes |
+|---|---|---|
+| `blaster_teal` | #26A69A | glossy toy plastic, roughness 0.45 (body, barrel) |
+| `grip_coral` | #FF7A5C | roughness 0.55 (grip, fore-grip, trigger) |
+| `trim_butter` | #F6CF57 | roughness 0.4 (rear cap, sight fin, pommel, ring, muzzle flare, collar, bolts, guard) |
+| `muzzle_dark` | #2A2030 | roughness 0.8 (bore) |
+| `tank_clear` | #E6F7F5 | transparent, opacity ~0.3, roughness 0.05 (dome) |
+| `tank_paint` | **#E5484D** (Classic red) | roughness 0.25. **Infection variant: #86D23A** (sickly green), set on the same material at runtime. Pellet, tracer, puff and splat use the same color as the tank. |
+| `sticker_pink` | #E8589F | star sticker, cream border #FFF6E2 |
+
+Colors come from the logo/party palette (logo red #E5484D, teal #26A69A; yellow softened to butter #F6CF57).
+
+**First person (from `paint_blaster_fp.png`, for the game builder):**
+- Viewmodel = child of the FP camera. PerspectiveCamera fov 70° vertical, near 0.01. Gun root (`grip` node) at camera-space **(0.21, -0.215, -0.52)** m; rotation: yaw 180° + 9° toe-in (barrel turns toward the crosshair), pitch 1° up, no roll; scale 1.0.
+- On a 16:9 screen that puts the muzzle at about 58 % x / 62 % y, the tank top at 66 % x / 59 % y, the rear cap at 73 % x / 76 % y and the grip at 66 % x / 80 % y: bottom-right, seen from behind/above-right, dome always visible.
+- Firing: kick back 0.045 m along camera +Z and pitch up 8° in 0.04 s, ease back in ~0.12 s; puff (white -> pink -> red) at the `muzzle` node; short red tracer from the muzzle to the hit point; red splat decal. Sway ±0.006 m while walking, 1-2° lag on fast turns. Infected seekers: tank, puff, tracer and splat tinted #86D23A.
+- An optional white mannequin arm tip can come in from the bottom-right corner to the grip (shown on the sheet).
+
+**Third person / scale:** seekers are the full-size 1.6 m bean mannequin (hiders are scaled 0.65). Parent the gun's `grip` node to `hand_R` (right arm tip) with the barrel along the character's +Z; the left arm tip rests on the fore-grip (no hands). In the sketch the grip sits at y ≈ 0.99 m (right elbow bent ~90°) and the muzzle at ≈ 1.06 m; FP eye height is 1.5 m.
+
+---
+
 ## Revision 2 (2026-11-07): new character, 18 new props, fuller maps
 
 Everything in this section overrides older text below. All Revision 2 images are code-drawn with the same tools and sheet layout as v1 (no AI images; the Hugging Face quota was not retried). v1 files are kept; the old lay-figure mannequin images are **superseded** (see the Character section below).

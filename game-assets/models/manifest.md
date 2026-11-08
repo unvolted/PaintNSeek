@@ -20,6 +20,60 @@ Tool: Blender 5.2.2 LTS (Python-built geometry), glTF 2.0 binary export. Every a
 
 ---
 
+# Revision 3 (2026-11-08): seeker `paint_blaster`
+
+Inputs: brief "Revision 3" + §10 "Seeker equipment", `concepts/manifest.md` "Revision 3", `paint_blaster_ortho.png`, `paint_blaster_fp.png`. Nothing older changed. Numbers below were read back from the exported glb (three.js gun space: +X = gun's left, +Y up, **+Z = barrel/forward**).
+
+### paint_blaster
+- **Files:** `paint_blaster.glb` (87 KB), `paint_blaster.blend`, `paint_blaster_preview.png` (side ortho, gun's right side, front -> right | 3/4 perspective | full-size 1.6 m mannequin holding it at `hand_R`, side view, true scale).
+- **Size:** 0.094 w x 0.231 h x 0.420 l; bounds x -0.047..0.047, y -0.077..0.154, z -0.120..0.300 (exactly the sheet). Symmetric about x = 0.
+- **Triangles:** 2,284 (`paint_blaster` 1,872, `paint_tank` 304, `trigger` 108), within the 2.5k cap. A 2.1k version with 2-segment body bevels read visibly chamfered, so the 3-segment body was kept.
+- **Look:** chunky toy, not a firearm: rounded teal body (r 0.022), butter rear cap, sight fin, ring, flared muzzle (dia 0.094) and 8 domed bolts, coral grip (tilted 15 deg back) and fore-grip, a single bent butter trigger guard, a dark bore (dia 0.062, 0.011 deep), clear dome tank with red paint (~65 % full), and a pink star sticker with a cream border on both body sides (real geometry, no texture).
+
+**Nodes (names used by the game; all children of the root, identity rotation, translation = pivot):**
+| node | type | position | notes |
+|---|---|---|---|
+| `paint_blaster` | root mesh | (0, 0, 0) = grip hand point | body, grip, pommel, fore-grip, barrel, ring, flare, bore, collar, bolts, guard, stickers |
+| `grip` | empty | (0, 0, 0) | hand / arm-tip attach point (= origin) |
+| `muzzle` | empty | (0, 0.070, 0.300) | +Z points out of the bore; tracer start and puff position |
+| `paint_tank` | mesh | (0, 0.114, 0.020) = dome base centre | `tank_clear` dome (R 0.040, top y 0.154) + `tank_paint` fill (R 0.037, flat meniscus 0.026 above the base) |
+| `trigger` | mesh | (0, 0.030, 0.042) = pivot | paddle 0.013 x 0.048 x 0.015, modelled leaning 10 deg forward; **`trigger.rotation.x` 0 = rest, +0.349 (+20 deg) = pulled** (tip swings back toward the grip) |
+
+**Materials:**
+| material | color | notes |
+|---|---|---|
+| `blaster_teal` | #26A69A | rough 0.45 (body, barrel) |
+| `grip_coral` | #FF7A5C | rough 0.55 (grip, fore-grip, trigger) |
+| `trim_butter` | #F6CF57 | rough 0.4 (rear cap, sight fin, pommel, ring, flare, collar, bolts, guard) |
+| `muzzle_dark` | #2A2030 | rough 0.8 (bore) |
+| `tank_clear` | #E6F7F5 | rough 0.05, **alphaMode BLEND, opacity 0.3** (dome only) |
+| `tank_paint` | #E5484D | rough 0.25. Classic red; set #86D23A at runtime for Infection |
+| `sticker_pink` | #E8589F | star |
+| `sticker_cream` | #FFF6E2 | star border. **Deviation:** the sheet gives this colour without a name, so it got its own material |
+
+All metalness 0 (toy plastic), no textures. UVs follow the prop convention (1 UV unit = 1 m, islands packed, no overlaps).
+
+**Transparent tank in three.js:**
+- GLTFLoader makes `tank_clear` a transparent `MeshStandardMaterial` (opacity 0.3). Also set `depthWrite = false` and keep `side = THREE.FrontSide` (the dome is single-sided with outward normals and an open bottom on the collar).
+- Draw it after the paint: `tankClearMesh.renderOrder = 1` (or larger than the paint). The `paint_tank` node holds two primitives; GLTFLoader turns them into a Group with two child meshes, so find them by `material.name`.
+- `tank_paint` is opaque. **Clone the material per seeker before tinting** (`mesh.material = mesh.material.clone()`), because cloned GLTF scenes share materials. Then `material.color.set('#86D23A')` for infected seekers (use the same colour for pellet, tracer, puff and splat).
+- Optional: give `tank_clear` a scene environment map for a nicer highlight. MeshPhysicalMaterial transmission is not needed.
+
+**Third person (held by full-size seekers):**
+- Parent the gun root to `hand_R` (the right arm tip) at position (0, 0, 0). The gun needs a rotation that matches the arm pose, because hand_R's axes follow the forearm.
+- With the forearm held level and forward (pose `upperarm_R` x +25 deg, `forearm_R` x +65 deg, applied rest x delta as in the Revision 2 notes), use **`gun.quaternion.set(0, 0.7071, 0.7071, 0)`**. That maps gun +Z to hand +Y (the forearm direction, i.e. character forward), gun +Y to hand +Z (up) and gun +X to character left.
+- Result at full size: grip at world y 0.923, muzzle at y 0.993 and 0.67 m in front of the body (`paint_blaster_preview.png`, right panel).
+- Robust alternative for any arm pose: each frame, `gun.quaternion = handR.getWorldQuaternion(q).invert().multiply(characterRoot.getWorldQuaternion(q2))` (barrel always along the body's facing). Or skip parenting, copy hand_R's world position and use the root's yaw.
+- The left arm tip has no hand; a reach like `upperarm_L` (62, 0, -28) + `forearm_L` (28, 0, 0) brings it near the top/front of the gun (tune by eye).
+- Seekers are scale 1.0. If a 0.65-scaled body ever holds it, the gun inherits that scale through `hand_R`, so compensate with `gun.scale.setScalar(1/0.65)` if it should stay full size.
+
+**First person (from `paint_blaster_fp.png`):**
+- Make the gun a child of the FP camera (fov 70 deg vertical, near 0.01). Put the root (`grip`) at camera-space **(0.21, -0.215, -0.52)** with `gun.rotation.set(-0.0175, Math.PI + 0.157, 0, 'YXZ')`: yaw 180 deg + 9 deg toe-in so the barrel turns toward the crosshair, and barrel pitched 1 deg up (negative x in YXZ order). Scale 1.0.
+- The muzzle then sits about 0.8 m in front of the eye and will clip into walls the player stands close to. Render the viewmodel in a second pass with a cleared depth buffer (or a separate scene/layer rendered after the world), not by turning off depthTest on its materials (that breaks the gun's own occlusion).
+- Firing kick and puff: animate the gun root (kick back 0.045 along camera +Z, pitch up 8 deg). Spawn the puff and tracer at the `muzzle` empty (`muzzle.getWorldPosition()`; its world +Z is the shot direction) and pull the trigger to +20 deg for ~0.05 s.
+
+---
+
 # Revision 2 (2026-11-08): new player character + 18 new props
 
 Inputs: brief "Revision 2" (incl. the user's follow-up "smooth it out, more like the soft mannequins in the trailer"), §3, §10 and `concepts/manifest.md` "Revision 2". Same tool, conventions, axes, UV rules and preview layout as above unless stated. Every number below was read back from the exported `.glb` (three.js coords: X width, Y up, +Z front).

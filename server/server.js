@@ -48,7 +48,7 @@ const server = http.createServer((req, res) => {
 // =====================================================================================================
 const MAPS = ['gallery', 'guest', 'kitchen'];
 const SPAWNS = 10; // hider spawn slots per map (client knows the coordinates)
-const LIMITS = { maxPlayers: 10, msgBytes: 64 * 1024, snapBytes: 3 * 1024 * 1024, lookBytes: 120 * 1024, msgsPerSec: 80, paintPerSec: 30, tagGap: 250, graceMs: 30000 };
+const LIMITS = { maxPlayers: 10, msgBytes: 64 * 1024, snapBytes: 3 * 1024 * 1024, lookBytes: 120 * 1024, msgsPerSec: 80, paintPerSec: 30, tagGap: 330, graceMs: 30000 };
 const ROOMS = new Map();
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O (look like 1/0)
 
@@ -59,11 +59,11 @@ function newCode() { for (;;) { let c = ''; for (let i = 0; i < 5; i++) c += COD
 function makeRoom(host) {
   const room = {
     code: newCode(), players: new Map(), hostId: host.id, phase: 'lobby', t: 0, roundNo: 0, rotation: 0, map: 'gallery',
-    settings: { hide: 120, seek: 180, seekers: 1 }, snapshots: new Map(), looks: new Map(), scribbles: [], emptySince: 0,
+    settings: { hide: 120, seek: 180, seekers: 1, mode: 'classic' }, snapshots: new Map(), looks: new Map(), scribbles: [], emptySince: 0,
   };
   ROOMS.set(room.code, room); return room;
 }
-function pub(p) { return { id: p.id, name: p.name, ready: p.ready, connected: p.connected, role: p.role, alive: p.alive, total: p.total, vote: p.vote, spawn: p.spawn }; }
+function pub(p) { return { id: p.id, name: p.name, ready: p.ready, connected: p.connected, role: p.role, alive: p.alive, total: p.total, vote: p.vote, spawn: p.spawn, infected: !!p.infected }; }
 function roomInfo(room) { return { code: room.code, host: room.hostId, phase: room.phase, map: room.map, settings: room.settings, roundNo: room.roundNo, players: [...room.players.values()].map(pub) }; }
 function sendTo(p, msg) { if (p.ws && p.ws.readyState === 1) p.ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); }
 function broadcast(room, msg, filter) { const s = JSON.stringify(msg); for (const p of room.players.values()) if (!filter || filter(p)) sendTo(p, s); }
@@ -79,13 +79,16 @@ function startRound(room) {
   for (const m of MAPS) if ((votes[m] || 0) > bv) { bv = votes[m]; best = m; }
   room.map = best;
   // seekers rotate each round through the join order
-  const order = [...room.players.values()].filter((p) => p.connected), nSeek = Math.min(room.settings.seekers, order.length - 1);
+  const infection = room.settings.mode === 'infection';
+  // Infection: 1 starting infected seeker (2 with 8+ players); Classic: host setting (1-2)
+  const order = [...room.players.values()].filter((p) => p.connected), nSeek = Math.min(infection ? (order.length >= 8 ? 2 : 1) : room.settings.seekers, order.length - 1);
   const seekers = new Set(); for (let i = 0; i < nSeek; i++) seekers.add(order[(room.rotation + i) % order.length].id);
   room.rotation = (room.rotation + nSeek) % order.length;
   const spawnSlots = [...Array(SPAWNS).keys()].sort(() => Math.random() - 0.5); let si = 0, sk = 0;
   for (const p of room.players.values()) {
     Object.assign(p, { role: !p.connected ? 'spectator' : seekers.has(p.id) ? 'seeker' : 'hider', alive: true, points: 0, survived: 0, nerves: 0, tags: 0, misses: 0, taggedBy: null, tagT: null,
       scans: 2, lastActivity: 0, state: null, cap: null, lastTag: 0, nerveState: new Map() });
+    p.wasHider = p.role === 'hider'; p.infected = infection && p.role === 'seeker';
     p.spawn = p.role === 'hider' ? spawnSlots[si++ % SPAWNS] : p.role === 'seeker' ? sk++ : 0;
   }
   room.snapshots.clear(); room.looks.clear();
@@ -102,11 +105,12 @@ function startSeek(room) {
 function endRound(room, winner) {
   if (room.phase !== 'seek' && room.phase !== 'hide') return;
   room.phase = 'results';
-  const hiders = [...room.players.values()].filter((p) => p.role === 'hider'), seekers = [...room.players.values()].filter((p) => p.role === 'seeker');
-  for (const h of hiders) { h.points += Math.floor(h.survived) + (h.alive ? 100 : 0); }
+const infection = room.settings.mode === 'infection';
+  const hiders = [...room.players.values()].filter((p) => p.wasHider), seekers = [...room.players.values()].filter((p) => p.role === 'seeker' && !p.wasHider);
+  for (const h of hiders) { h.points += Math.floor(h.survived) + (h.alive ? (infection ? 150 : 100) : 0); }
   if (winner === 'seekers') { const left = Math.ceil(room.t); for (const s of seekers) s.points += 25 * left; }
   for (const p of [...hiders, ...seekers]) p.total = (p.total || 0) + p.points;
-  const row = (p) => ({ id: p.id, name: p.name, role: p.role, alive: p.alive, taggedBy: p.taggedBy, tagT: p.tagT, survived: p.survived, nerves: p.nerves, tags: p.tags, misses: p.misses, points: p.points, total: p.total });
+  const row = (p) => ({ id: p.id, name: p.name, role: p.wasHider ? (p.infected ? 'infected' : 'hider') : 'seeker', infected: !!p.infected, alive: p.alive, taggedBy: p.taggedBy, tagT: p.tagT, survived: p.survived, nerves: p.nerves, tags: p.tags, misses: p.misses, points: p.points, total: p.total });
   broadcast(room, { type: 'results', winner, hiders: hiders.map(row), seekers: seekers.map(row), looks: Object.fromEntries(room.looks) });
   for (const p of room.players.values()) p.ready = false;
   setTimeout(() => { if (room.phase === 'results') { room.phase = 'lobby'; syncRoom(room); } }, 1000);
@@ -141,11 +145,15 @@ function handleTag(room, p, m) {
   const point = Array.isArray(m.p) ? m.p.slice(0, 3).map((v) => clampN(v, -100, 100)) : o;
   if (hit) {
     hit.alive = false; hit.taggedBy = p.name; hit.tagT = room.settings.seek - room.t; p.tags++; p.points += 100;
-    broadcast(room, { type: 'tagged', by: p.id, byName: p.name, target: hit.id, targetName: hit.name, point });
-    if (!aliveHiders(room).length) endRound(room, 'seekers');
+    const infection = room.settings.mode === 'infection';
+    // Infection: the hider becomes a full-size seeker where they were hit, with 2 fresh scan pulses
+    if (infection) { hit.role = 'seeker'; hit.infected = true; hit.scans = 2; hit.cap = null; }
+    broadcast(room, { type: 'tagged', by: p.id, byName: p.name, target: hit.id, targetName: hit.name, point, o, infected: infection });
+    if (!aliveHiders(room).length) endRound(room, infection ? 'infected' : 'seekers');
+    else if (infection) syncRoom(room);
   } else {
-    room.t = Math.max(0, room.t - 5); p.misses++;
-    broadcast(room, { type: 'miss', by: p.id, byName: p.name, point, t: room.t });
+    room.t = Math.max(0, room.t - 2); p.misses++; // Revision 3: a missed pellet costs 2 s
+    broadcast(room, { type: 'miss', by: p.id, byName: p.name, point, o, t: room.t });
   }
 }
 // Nerves of Steel (server side): seeker within 2 m, hider inside the central ~30% of its view (about 17 deg off-axis)
@@ -168,7 +176,7 @@ function tickRoom(room, dt) {
   if (room.phase === 'hide' || room.phase === 'seek') {
     room.t -= dt;
     if (room.phase === 'seek') { for (const h of aliveHiders(room)) h.survived += dt; nerves(room, dt); }
-    if (room.t <= 0) { if (room.phase === 'hide') startSeek(room); else { room.t = 0; endRound(room, 'hiders'); } }
+    if (room.t <= 0) { if (room.phase === 'hide') startSeek(room); else { room.t = 0; endRound(room, room.settings.mode === 'infection' ? 'survivors' : 'hiders'); } }
     room.tTick = (room.tTick || 0) + dt; if (room.tTick >= 1) { room.tTick = 0; broadcast(room, { type: 'timer', phase: room.phase, t: room.t }); }
   }
   // 15 Hz state sync. During HIDE seekers get no hider positions (blindfolded).
@@ -244,7 +252,8 @@ function handle(conn, m) {
     case 'settings':
       if (!isHost || room.phase !== 'lobby') return;
       if (MAPS.includes(m.map)) room.map = m.map;
-      room.settings = { hide: clampN(m.hide, 20, 600, room.settings.hide), seek: clampN(m.seek, 30, 900, room.settings.seek), seekers: Math.round(clampN(m.seekers, 1, 2, room.settings.seekers)) };
+      room.settings = { hide: clampN(m.hide, 20, 600, room.settings.hide), seek: clampN(m.seek, 30, 900, room.settings.seek), seekers: Math.round(clampN(m.seekers, 1, 2, room.settings.seekers)),
+        mode: m.mode === 'infection' ? 'infection' : m.mode === 'classic' ? 'classic' : room.settings.mode };
       return syncRoom(room);
     case 'start': {
       if (!isHost || room.phase !== 'lobby') return;
@@ -254,7 +263,7 @@ function handle(conn, m) {
       if (room.phase === 'lobby' || p.role === 'spectator') return;
       const s = { x: clampN(m.x, -50, 80), y: clampN(m.y, -2, 5), z: clampN(m.z, -50, 80), yaw: clampN(m.yaw, -20, 20), pitch: clampN(m.pitch, -2, 2), pose: typeof m.pose === 'string' ? m.pose.slice(0, 12) : null,
         py: clampN(m.py, -1, 3, 0.62), sp: clampN(m.sp, 0, 8), mv: !!m.mv, cr: !!m.cr, fl: !!m.fl };
-      if (p.role === 'hider' && room.phase === 'seek' && p.state && (Math.hypot(s.x - p.state.x, s.z - p.state.z) > 0.25)) s.x = p.state.x, s.z = p.state.z; // frozen in SEEK
+      // Revision 3: hiders keep moving during SEEK (no freeze)
       if (p.role === 'hider' && (s.mv || (p.state && Math.hypot(s.x - p.state.x, s.z - p.state.z) > 0.02))) p.lastActivity = Date.now();
       p.state = s;
       if (Array.isArray(m.cap) && m.cap.length === 7) p.cap = m.cap.map((v, i) => clampN(v, i === 6 ? 0.05 : -50, i === 6 ? 1.2 : 80));
@@ -312,8 +321,8 @@ setInterval(() => {
   for (const room of ROOMS.values()) {
     for (const p of [...room.players.values()]) if (!p.connected && p.goneAt && now - p.goneAt > LIMITS.graceMs) {
       room.players.delete(p.id); broadcast(room, { type: 'info', msg: `${p.name} left` });
-      if (room.phase === 'seek' && !aliveHiders(room).length) endRound(room, 'seekers');
-      if ((room.phase === 'seek' || room.phase === 'hide') && ![...room.players.values()].some((x) => x.role === 'seeker')) endRound(room, 'hiders');
+      if (room.phase === 'seek' && !aliveHiders(room).length) endRound(room, room.settings.mode === 'infection' ? 'infected' : 'seekers');
+      if ((room.phase === 'seek' || room.phase === 'hide') && ![...room.players.values()].some((x) => x.role === 'seeker')) endRound(room, room.settings.mode === 'infection' ? 'survivors' : 'hiders');
       syncRoom(room);
     }
     if (!room.players.size || (room.emptySince && now - room.emptySince > LIMITS.graceMs)) { ROOMS.delete(room.code); continue; }
