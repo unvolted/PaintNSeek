@@ -1,0 +1,16 @@
+{
+  "name": "paintnseek",
+  "version": "0.1.0",
+  "description": "PaintNSeek - 3D browser hide-and-seek where hiders paint their own bodies to camouflage.",
+  "private": true,
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "8.22.1"
+  }
+}

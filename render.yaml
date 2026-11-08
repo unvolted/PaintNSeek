@@ -1,0 +1,13 @@
+# Render Blueprint: one free Node web service that serves the game and the WebSocket server on the same port.
+services:
+  - type: web
+    name: paintnseek
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/info
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
