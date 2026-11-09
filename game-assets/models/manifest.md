@@ -20,6 +20,66 @@ Tool: Blender 5.2.2 LTS (Python-built geometry), glTF 2.0 binary export. Every a
 
 ---
 
+# Revision 5 (2026-11-08): places to hide inside things
+
+Inputs: brief "Revision 5", `concepts/manifest.md` "Revision 5" and the six `*_ortho.png` sheets. The originals (`bookshelf`, `fridge_tall`, `rack_wire`) are unchanged and stay in use beside the variants. Numbers are read back from the glbs (three.js: X width, Y up, +Z front; origin at base centre).
+
+**Shared rules**
+- **Doors** (as `wardrobe` / `fridge_tall`): each door is a child node whose origin is on its hinge axis at the door's front face and bottom edge, with identity rotation when closed. **Left-hinged (-X edge): `rotation.y` 0 -> -110 deg (-1.92 rad); right-hinged (+X edge): 0 -> +110 deg (+1.92 rad)**, swinging out toward +Z. At 110 deg every door is clear of its own opening.
+- **Interiors are truly hollow:** no liner shells, blocks or hidden geometry inside any cavity. Inner faces are only the carcass panels with an interior material (`wood_interior` / `cupboard_interior` / `fridge_interior`). The glb triangles can be used directly for collision.
+- **Previews** (`<id>_preview.png`): front with doors closed | 3/4 with doors open 110 deg and the 0.55-scale mannequin (Revision 2 bean x 0.55) inside | front with doors at 90 deg and the hider(s) inside (ortho). Each fit was also checked numerically (hider bounds inside the clear box). Hider at 0.55: curled 0.61 l x 0.26 w x 0.26 h, crouched 0.26 x 0.35 x 0.685, standing 0.88.
+
+### bookshelf_gappy (Map 2), variant of `bookshelf`
+- **Files:** `bookshelf_gappy.glb` (40 KB) + `.blend` (made from `bookshelf.blend`) + preview. **Tris:** 620 (case 140, books 480). **Size:** 1.00 x 2.00 x 0.355, identical case, origin, materials and node layout.
+- **Nodes:** `bookshelf_gappy` (sides, top, plinth, back, boards with bottoms at **0.08 / 0.82 / 1.19 / 1.56**; the 0.45 board is removed); `books` pivot (0,0,0): the two top bays as before, the middle bay's right part (x 0.17-0.465: 3 books leaning left 18/12/6 deg + an upright run).
+- **Clear cavities:** cubby **0.93 w x 0.715 h x 0.338 d** (x -0.465..0.465, y 0.105..0.82, z -0.163..0.175, front open). Middle-bay gap **0.635 w x 0.345 h x 0.338 d** (x -0.465..0.17, y 0.845..1.19). Verified: curled hider in both (cubby margins 0.16 each side, 0.45 above; gap margins 0.013 each side, 0.078 above). A crouched hider (0.685) fits the cubby turned sideways (0.03 head room).
+- **Materials:** `wood_shelf` #5A3A22, `book_spines` #7A2F35 (unchanged).
+
+### sideboard_walnut (Map 1), new
+- **Files:** `sideboard_walnut.glb` (79 KB) + `.blend` + preview. **Tris:** 1,444 (carcass 660, doors 196 each). **Size:** 2.04 w x 0.90 h x 0.543 d (carcass 2.00 x 0.50, top slab 2.04 x 0.54 at 0.86-0.90, knobs to z 0.273).
+- **Nodes:** `sideboard_walnut` (side walls x +-0.975..1.0, back z -0.25..-0.23, bottom 0.10-0.12, inner top 0.84-0.86, central divider x +-0.01, top slab, 4 bun feet (0.10) at x +-0.93); doors (inset, 0.4825 x 0.72 x 0.02, gold inlay frame, brass knob near the meeting edge of each pair):
+
+| door | pivot (hinge, front face, bottom) | hinge | open |
+|---|---|---|---|
+| `door_1` | (-0.975, 0.12, 0.25) | left | rotation.y 0 -> -110 deg |
+| `door_2` | (-0.01, 0.12, 0.25) | right | 0 -> +110 deg |
+| `door_3` | (+0.01, 0.12, 0.25) | left | 0 -> -110 deg |
+| `door_4` | (+0.975, 0.12, 0.25) | right | 0 -> +110 deg |
+
+- **Clear per bay:** **0.965 w x 0.72 h x 0.46 d** (x -0.975..-0.01 and +0.01..+0.975, y 0.12..0.84, z -0.23..+0.23). Verified: curled hider along the left bay (margins 0.18 / 0.10 / 0.45 above); crouched hider facing the doors in the right bay (0.032 head room, 0.057 front/back).
+- **Materials:** `wood_walnut` #5A3A22, `wood_walnut_dark` #3B2416 (feet), `wood_interior` #3A2416 (inside faces), `gold_gilt` #B8913F (metal), `brass` #B08D57 (metal).
+- **Note:** the centre doors (`door_2`/`door_3`) swing out in front of the neighbouring bay at 110 deg (their free edge ends about 0.16 m past the centre line, 0.45 m out). They never cover their own bay.
+
+### cupboard_base (Map 3), new
+- **Files:** `cupboard_base.glb` (58 KB) + `.blend` + preview. **Tris:** 756 (carcass 188, doors 284 each). **Size:** 1.02 w x 0.90 h x 0.697 d (carcass 1.00 x 0.65, stainless top 1.02 x 0.67 at 0.86-0.90 with a rolled front edge, handles to z 0.362). Counter height = `counter_steel`.
+- **Nodes:** `cupboard_base` (painted sides, back, floor 0.10-0.12, inner top 0.84-0.86, black toe kick 0-0.10 set back 0.075, stainless top; no shelf, no divider); `door_L` pivot **(-0.50, 0.12, 0.325)** opens 0 -> -110 deg, `door_R` pivot **(+0.50, 0.12, 0.325)** opens 0 -> +110 deg. Doors are overlay type, 0.4975 x 0.72 x 0.02, shaker frame, vertical chrome bar handle near the centre gap.
+- **Clear inside:** **0.96 w x 0.72 h x 0.61 d** (x -0.48..0.48, y 0.12..0.84, z -0.305..+0.305). Verified: curled hider lying across it (margins 0.175 / 0.176 / 0.45 above). A crouched hider (0.685) also fits facing the doors.
+- **Materials:** `cupboard_paint_mint` #7FB5A2 (rough 0.6), `cupboard_interior` #E6E1D3, `stainless_steel` #BFC4C8 (metal), `chrome` #D4D7DA (metal), `gasket_black` #1F1F21 (toe kick).
+
+### linen_cupboard (Map 2), new
+- **Files:** `linen_cupboard.glb` (125 KB) + `.blend` + preview. **Tris:** 1,788 (carcass 216, doors 236 each, towels 1,100). **Size:** 1.06 w x 2.00 h x 0.552 d (carcass 1.00 x 0.50, cornice 1.06 x 0.54 at 1.95-2.00).
+- **Nodes:** `linen_cupboard` (plinth 0-0.10, sides, back, floor 0.10-0.12, top rail 1.92-1.95, shelves with bottoms at **1.15 / 1.45 / 1.72** (0.02 thick), cornice); `door_L` pivot **(-0.50, 0.12, 0.25)** opens 0 -> -110 deg, `door_R` pivot **(+0.50, 0.12, 0.25)** opens 0 -> +110 deg (each 0.4975 x 1.80 x 0.02, two raised panels, brass knob at y 1.03); `towels` pivot (0,0,0): 8 stacks of folded towels on the three shelves.
+- **Clear lower half:** **0.96 w x 1.03 h x 0.46 d** (x -0.48..0.48, y 0.12..1.15, z -0.23..+0.23). Verified: a standing (0.88, 0.147 head room) and a crouched hider side by side.
+- **Materials:** `paint_cream` #E9E0C9, `brass` #B08D57, `wood_interior` #3A2416 (inside faces), towels `cloth_sage` #8FA88A, `cloth_cream` #EFE6CF, `cloth_rose` #D78A8F.
+
+### fridge_tall_open (Map 3), variant of `fridge_tall`
+- **Files:** `fridge_tall_open.glb` (73 KB) + `.blend` (made from `fridge_tall.blend`) + preview. **Tris:** 954 (cabinet 714, doors 120 each). **Size:** 1.30 x 2.00 x 0.816, same as `fridge_tall`.
+- **Change:** the chrome wire shelves at 0.45 and 0.80 are deleted; shelves at **1.15 and 1.50** stay. Everything else (nodes, pivots, materials, interior) is identical: `door_L` (-0.65, 0.10, 0.38) 0 -> -1.92, `door_R` (+0.65, 0.10, 0.38) 0 -> +1.92.
+- **Clear lower space:** **1.22 w x 1.02 h x 0.69 d** (x -0.61..0.61, y 0.12..1.14, z -0.36..+0.33). Verified: crouched hider (0.33 head room) and standing hider (0.137 head room) side by side.
+
+### rack_wire_sparse (Map 3), variant of `rack_wire`
+- **Files:** `rack_wire_sparse.glb` (141 KB) + `.blend` (made from `rack_wire.blend`) + preview. **Tris:** 2,258 (rack 1,360, `pantry_items_2` 584, `pantry_items_3` 314). **Size:** 1.20 x 1.90 x 0.45.
+- **Change:** the `pantry_items_1` node is removed, so the bottom deck is empty. `pantry_items_2` (0, 0.73, 0) and `pantry_items_3` (0, 1.31, 0) are unchanged, as are materials (`wire_chrome`, `tin_label`, `glass_jar` alpha 0.45, `pantry_food`).
+- **Clear on the bottom deck:** **1.15 w x 0.553 h x 0.45 d** (deck top 0.162 to deck-2 underside 0.715). Verified: curled hider (margins 0.27 each side, 0.286 above). Crouched does not fit. It stays see-through.
+
+### Collision notes for the game builder (Revision 5 per-part / BVH collision)
+- **Good collision parts** (use their triangles, per node): every carcass root (`bookshelf_gappy`, `sideboard_walnut`, `cupboard_base`, `linen_cupboard`, `fridge_tall_open`, `rack_wire_sparse`) and every `door_*` node. Build door BVHs in node-local space and test them with the door's current world matrix, so open and closed doors collide where they are.
+- **Thin panels:** walls and doors are 0.02-0.025 m thick and the wire decks are thin rods. Resolve capsule/sphere-vs-triangle by closest-point push-out, and keep each movement step smaller than the hider capsule radius (substep sprints), so nobody tunnels through a panel. The wire rack is best collided as its 4 posts + 4 thin deck boxes (as before); the per-triangle wire mesh is fine but dense.
+- **Soft / passable or skip-able:** `towels` (sits on shelves, nothing to walk into; skip it for collision), `books` (fine either way; skipping it lets a hider press against the book fronts), `pantry_items_*` (small clutter; skip). None of the new models has soft cloth parts. The banquet-cloth skirt, laundry heap, urn fronds etc. from Revision 2 stay passable as listed there.
+- **Nooks to add** (centre of the clear box, asset space): bookshelf cubby (0, 0.46, 0.006) and gap (-0.15, 1.02, 0.006); sideboard bays (+-0.49, 0.48, 0); cupboard_base (0, 0.48, 0); linen cupboard (0, 0.64, 0); fridge_tall_open (0, 0.63, -0.015); rack bottom deck (0, 0.44, 0). Doors that the game opens must use the full 110 deg, or at least 90 deg, so the swing does not narrow the opening.
+
+---
+
 # Revision 3 (2026-11-08): seeker `paint_blaster`
 
 Inputs: brief "Revision 3" + §10 "Seeker equipment", `concepts/manifest.md` "Revision 3", `paint_blaster_ortho.png`, `paint_blaster_fp.png`. Nothing older changed. Numbers below were read back from the exported glb (three.js gun space: +X = gun's left, +Y up, **+Z = barrel/forward**).

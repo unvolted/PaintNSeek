@@ -27,6 +27,43 @@ The user played checkpoint A and asked for three changes. They override anything
 
 ---
 
+## Revision 5 (user feedback, 2026-11-08): tighter collisions and more places to hide inside things
+
+The user wants hiders to fit better **under and inside** objects, and more openings to hide in.
+
+1. **Shape-accurate collision for props.** Replace the box footprints for furniture and props with collision that
+   follows the real geometry: tables, chairs, counters, beds, the piano, trolleys, racks and shelves block only where
+   they have legs, tops, panels, shelves and frames, so a hider can go anywhere they physically fit (under a table
+   when curled or crouched, under the bed, between chair legs, into a cubby). Use a BVH over each prop's triangles
+   (e.g. `three-mesh-bvh`, pinned on jsDelivr, version compatible with three@0.170.0) or per-part colliders
+   generated from the model's nodes; capsule-vs-triangle for the hider and seekers. Walls and floors keep their
+   simple colliders.
+   - Hider collision shape follows the current pose (standing/crouched capsule, curled ≈ ball, lying ≈ long low
+     capsule) so curling up lets you roll under low things.
+   - Soft things stay passable: tablecloth skirts, curtains and the strip curtain, palm fronds, the laundry heap,
+     balloons, scarves/coats, quilt overhang.
+   - Seekers use the same collision, so a seeker cannot walk through a table to reach someone under it (they shoot).
+   - AI navigation and the AI hider nook picker must understand the new spaces (nav grid from the real collision at
+     hider and seeker heights).
+2. **More openings to hide in** (new and changed models, stage 1 + 2):
+   - **Bookshelves with gaps:** a `bookshelf_gappy` variant with the bottom two bays emptied into one tall cubby
+     (no shelf board between them, books cleared, ~0.7 m clear height, full depth) and a middle bay half-emptied
+     with leaning books, so a curled or crouched 0.55 hider fits. Use it for about half of the bookshelves.
+   - **Cupboards that open, hollow inside:** new `sideboard_walnut` (Map 1 gallery, long walnut sideboard with two
+     pairs of hinged doors and a hollow interior a curled hider fits in) and new `cupboard_base` (Map 3 kitchen,
+     stainless/painted base cupboard with two hinged doors and a hollow interior, fits under counter height).
+     Map 2 uses the wardrobe (already hollow; doors open), the dresser (drawer carcass is hollow: some lower drawers
+     pulled right out or removed leave a cavity), the vanity kneehole and a new `linen_cupboard` (tall cream cupboard
+     with hinged doors, top shelves of folded towels, the lower half empty).
+   - **Fridge:** a `fridge_tall_open` variant whose lower interior has no shelves so a crouched hider fits with a
+     door open.
+   - **Wire racks:** a `rack_wire_sparse` variant with the bottom deck cleared of tins.
+   - In the game, open some doors and drawers per map (random each round within limits: wardrobes ajar, a couple of
+     sideboard/cupboard doors open, some drawers pulled out), and add every new cavity to the nooks list so AI
+     hiders use them and AI seekers check them. Doors that are open must not block the opening they create.
+
+---
+
 ## Revision 4 (user feedback, 2026-11-08)
 
 1. **Hiders a little smaller:** hider scale 0.65 → **0.55** (≈ 0.88 m tall), with everything that scaled in

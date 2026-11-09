@@ -93,7 +93,10 @@ function startRound(room) {
   }
   room.snapshots.clear(); room.looks.clear();
   room.roundNo++; room.phase = 'hide'; room.t = room.settings.hide;
-  broadcast(room, { type: 'phase', phase: 'hide', t: room.t, map: room.map, roundNo: room.roundNo, room: roomInfo(room) });
+  // Revision 5: the server picks this round's door / drawer openings (a seed every client expands the same way),
+  // so all players see the same open cupboards, fridges and pulled-out drawers
+  room.doorSeed = Math.floor(Math.random() * 2147483647);
+  broadcast(room, { type: 'phase', phase: 'hide', t: room.t, map: room.map, roundNo: room.roundNo, doors: room.doorSeed, room: roomInfo(room) });
   return null;
 }
 function startSeek(room) {
@@ -136,13 +139,16 @@ function handleTag(room, p, m) {
   if (!o || !d0) return;
   const L = Math.hypot(...d0) || 1, d = d0.map((v) => v / L);
   if (p.state && Math.hypot(o[0] - p.state.x, o[2] - p.state.z) > 1.5) return; // the ray must start at the seeker
+  const point = Array.isArray(m.p) ? m.p.slice(0, 3).map((v) => clampN(v, -100, 100)) : o;
+  // Revision 5: the shot stops where the shooter's own ray stopped (walls, furniture, closed doors: the door states
+  // come from this round's server-chosen seed), so nobody is tagged through a cupboard door or a table top
+  const reach = Math.min(25.5, Math.hypot(point[0] - o[0], point[1] - o[1], point[2] - o[2]) + 0.6);
   let hit = null, best = 1e9;
   for (const h of aliveHiders(room)) {
     if (!h.cap) continue;
     const r = raySegDist(o, d, h.cap.slice(0, 3), h.cap.slice(3, 6));
-    if (r.dist <= h.cap[6] + 0.3 && r.s <= 25.5 && r.s < best) { best = r.s; hit = h; }
+    if (r.dist <= h.cap[6] + 0.3 && r.s <= reach && r.s < best) { best = r.s; hit = h; }
   }
-  const point = Array.isArray(m.p) ? m.p.slice(0, 3).map((v) => clampN(v, -100, 100)) : o;
   if (hit) {
     hit.alive = false; hit.taggedBy = p.name; hit.tagT = room.settings.seek - room.t; p.tags++; p.points += 100;
     const infection = room.settings.mode === 'infection';
@@ -226,7 +232,7 @@ function joinRoom(conn, room, name, token) {
   sendTo(p, { type: 'welcome', id: p.id, token: p.token, room: roomInfo(room), t: room.t });
   // late join / reconnect mid-round: current phase + every hider's latest paint snapshot
   if (room.phase === 'hide' || room.phase === 'seek') {
-    sendTo(p, { type: 'phase', phase: room.phase, t: room.t, map: room.map, roundNo: room.roundNo, room: roomInfo(room), resume: true, self: p.state }); // includes our own last position
+    sendTo(p, { type: 'phase', phase: room.phase, t: room.t, map: room.map, roundNo: room.roundNo, doors: room.doorSeed, room: roomInfo(room), resume: true, self: p.state }); // includes our own last position
     if (!(room.phase === 'hide' && p.role === 'seeker')) for (const [id, png] of room.snapshots) sendTo(p, { type: 'snapshot', from: id, png });
   }
   syncRoom(room);

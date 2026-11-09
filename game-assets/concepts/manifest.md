@@ -4,6 +4,103 @@ Source of truth: `game-assets/brief.md` (sections 0, 3, 6, 7, 10). Every file li
 
 ---
 
+## Revision 5 (2026-11-08): places to hide inside things
+
+Six new code-drawn ortho sheets (same header / grid / callout layout as the v1 and Revision 2 prop sheets, 1800x1100, meters, red + = origin at base centre). Each sheet shows the clear interior as a green dashed box with its dimensions, and the hider at **0.55 scale** (the final bean mannequin x 0.55: standing 0.88, crouched 0.69, curled 0.28 tall x 0.61 long x 0.26 wide, lying 0.25) drawn inside for scale. Nothing older changes; the originals (`bookshelf`, `fridge_tall`, `rack_wire`) stay in use alongside the variants.
+
+**Hider fit rules used for every opening** (0.55 hider): curled needs ≥ 0.30 h x 0.65 l x 0.30 w; crouched needs ≥ 0.72 h x 0.40 x 0.30 (or 0.30 deep if turned sideways); standing needs ≥ 0.90 h.
+
+### New files
+
+| File | Asset | Map |
+|---|---|---|
+| `bookshelf_gappy_ortho.png` | `bookshelf_gappy` (variant of `bookshelf`) | 2 |
+| `sideboard_walnut_ortho.png` | `sideboard_walnut` (new) | 1 |
+| `cupboard_base_ortho.png` | `cupboard_base` (new) | 3 |
+| `linen_cupboard_ortho.png` | `linen_cupboard` (new) | 2 |
+| `fridge_tall_open_ortho.png` | `fridge_tall_open` (variant of `fridge_tall`) | 3 |
+| `rack_wire_sparse_ortho.png` | `rack_wire_sparse` (variant of `rack_wire`) | 3 |
+
+All doors below follow the existing convention (`wardrobe`, `fridge_tall`): origin ON the hinge axis at the door's front face and bottom edge, rotation about Y; a door hinged on its **left** (-X) edge opens with `rotation.y` 0 -> -110 deg, a door hinged on its **right** (+X) edge with 0 -> +110 deg (swinging out toward +Z). Collision for all of them follows the panels (Revision 5 brief: per-part / BVH), never a solid box.
+
+### `bookshelf_gappy` (Map 2) - `bookshelf_gappy_ortho.png`
+
+- **Size:** 1.00 w x 2.00 h x 0.355 d, origin base centre: the same case as `models/bookshelf.glb` (sides, top, plinth 0-0.08, closed back panel ~0.015).
+- **Change 1, cubby:** the shelf board at 0.45 is removed. Boards (bottoms) at **0.08 / 0.82 / 1.19 / 1.56**, 0.025 thick. The bottom bay is empty (no books): **clear 0.94 w x 0.715 h (y 0.105-0.82) x 0.34 d**. A curled 0.55 hider lies along it; a crouched one (0.69) fits turned sideways.
+- **Change 2, half-empty middle bay** (y 0.845-1.19): books only in the right 0.30 m (x 0.17-0.47) with 3 books leaning left (about 18 / 12 / 6 deg); **clear 0.64 w x 0.345 h x 0.34 d** on the left, enough for a curled hider (it sits 0.845 off the floor).
+- The top two bays (1.215-1.56 and 1.585-1.95) stay full as on `bookshelf`.
+- **Nodes:** `bookshelf_gappy` (case + 4 boards); child `books` pivot (0, 0, 0) = the two full bays, the right part of the middle bay and the 3 leaning books.
+- **Materials:** `wood_shelf` #5A3A22, `book_spines` #7A2F35 (same multi-color spine texture as `bookshelf`).
+- **Collision:** case panels, boards and book blocks only, so the cubby and the gap stay open.
+
+### `sideboard_walnut` (Map 1) - `sideboard_walnut_ortho.png`
+
+- **Size:** 2.04 w x 0.90 h x 0.54 d (carcass 2.00 x 0.50), origin base centre.
+- **Build:** carcass y 0.10-0.86 on 4 walnut-dark bun feet (0.10 tall, at x ±0.93); top slab 2.04 x 0.54 at 0.86-0.90; walls 0.025, bottom panel 0.10-0.12, inner top 0.84; one central divider 0.02 (x -0.01..+0.01) makes two bays; **no shelves**. Gold inlay rectangle on each door, brass knobs near the meeting edges of each pair.
+- **Clear per bay:** **0.965 w x 0.72 h (y 0.12-0.84) x 0.46 d** (x -0.975..-0.01 and +0.01..+0.975; z -0.23..+0.23). A curled 0.55 hider lies along a bay; a crouched one (0.69) fits facing the doors.
+- **Doors (separate):** `door_1`..`door_4`, left to right, each 0.4825 w x 0.72 h x 0.02, front face z +0.25. Pivots: `door_1` (-0.975, 0.12, 0.25), `door_2` (-0.01, 0.12, 0.25), `door_3` (+0.01, 0.12, 0.25), `door_4` (+0.975, 0.12, 0.25). Open: `door_1`, `door_3` rotation.y 0 -> -110 deg; `door_2`, `door_4` 0 -> +110 deg.
+- **Materials:** `wood_walnut` #5A3A22, `wood_walnut_dark` #3B2416 (feet), `wood_interior` #3A2416 (inside), `gold_gilt` #B8913F (inlay), `brass` #B08D57 (knobs).
+
+### `cupboard_base` (Map 3) - `cupboard_base_ortho.png`
+
+- **Size:** 1.02 w x 0.90 h x 0.67 d (carcass 1.00 x 0.65), origin base centre. Counter height, matches `counter_steel` (0.90).
+- **Build:** painted carcass y 0.10-0.86, walls 0.02, floor 0.10-0.12, inner top 0.84; black toe kick 0-0.10 set back 0.075 at the front; stainless top 1.02 x 0.67 at 0.86-0.90 with a rolled front edge; **no shelf, no divider**. Shaker-panel doors, vertical chrome bar handles near the centre gap.
+- **Clear inside:** **0.96 w x 0.72 h (y 0.12-0.84) x 0.61 d**. Curled 0.55 hider lies across it; crouched (0.69) fits facing the doors.
+- **Doors (separate):** `door_L` pivot (-0.50, 0.12, 0.325), `door_R` pivot (+0.50, 0.12, 0.325); each 0.4975 w x 0.72 h x 0.02. Open: `door_L` rotation.y 0 -> -110 deg, `door_R` 0 -> +110 deg.
+- **Materials:** `cupboard_paint_mint` #7FB5A2 (new, painted wood, rough 0.6), `stainless_steel` #BFC4C8, `chrome` #D4D7DA, `gasket_black` #1F1F21 (toe kick), `cupboard_interior` #E6E1D3 (new).
+
+### `linen_cupboard` (Map 2) - `linen_cupboard_ortho.png`
+
+- **Size:** 1.06 w x 2.00 h x 0.54 d (carcass 1.00 x 0.50), origin base centre.
+- **Build:** plinth 0-0.10, carcass to 1.95, walls 0.02, floor at 0.12, cornice 1.06 x 0.54 at 1.95-2.00. Shelves (bottoms) at **1.15 / 1.45 / 1.72**, 0.02 thick, each with 2-3 stacks of folded towels (sage / cream / rose / white).
+- **Lower half empty:** **clear 0.96 w x 1.03 h (y 0.12-1.15) x 0.46 d**. A 0.55 hider can stand (0.88), crouch (0.69) or curl inside.
+- **Doors (separate):** `door_L` pivot (-0.50, 0.12, 0.25), `door_R` pivot (+0.50, 0.12, 0.25); each 0.4975 w x 1.80 h x 0.02 with two raised panels; brass knobs at y 1.03. Open: `door_L` rotation.y 0 -> -110 deg, `door_R` 0 -> +110 deg.
+- **Child** `towels` pivot (0, 0, 0): merged towel stacks.
+- **Materials:** `paint_cream` #E9E0C9 (as `dresser_drawers`), `brass` #B08D57, `wood_interior` #3A2416 (inside; or paint_cream), towels `cloth_sage` #8FA88A, `cloth_cream` #EFE6CF, `cloth_rose` #D78A8F (names as `laundry_pile`).
+
+### `fridge_tall_open` (Map 3) - `fridge_tall_open_ortho.png`
+
+- **Same model as `fridge_tall`** (1.30 w x 2.00 h x 0.816 d; cabinet 0.08-1.80, grille 1.80-2.00, 4 feet, white interior), except the wire shelves at **0.45 and 0.80 are removed**. Shelves stay at **1.15 and 1.50** (a few tubs / bottles on them is optional).
+- **Clear lower space:** **1.22 w x 1.02 h (y 0.12-1.14) x 0.69 d** (z -0.36..+0.33 behind the closed doors). A crouched 0.55 hider fits easily; even standing (0.88) fits.
+- **Doors unchanged:** `door_L` pivot (-0.65, 0.10, 0.38), `door_R` pivot (+0.65, 0.10, 0.38); open `door_L.rotation.y` 0 -> -1.92, `door_R` 0 -> +1.92 (110 deg). In game, an open door must not block the opening.
+- **Materials:** unchanged: `stainless_steel` #BFC4C8, `gasket_black` #1F1F21, `chrome` #D4D7DA, `grille_dark` #2A2A2C, `fridge_interior` #E8E8E4.
+
+### `rack_wire_sparse` (Map 3) - `rack_wire_sparse_ortho.png`
+
+- **Same model as `rack_wire`** (1.20 w x 1.90 h x 0.45 d, posts dia 0.025, wire decks at 0.15 / 0.73 / 1.31 / 1.88) **without `pantry_items_1`**: the bottom deck is empty. `pantry_items_2` (0, 0.73, 0) and `pantry_items_3` (0, 1.31, 0) are unchanged.
+- **Clear on the bottom deck:** **1.15 w (between posts) x 0.55 h (deck top 0.162 to deck-2 underside 0.715) x 0.45 d**. A curled 0.55 hider lies on it; a crouched one does not fit. It stays see-through (risky spot, paint matters).
+- **Materials:** unchanged: `wire_chrome` #D4D7DA, `tin_label` #C83A2A, `glass_jar` #C8D8D0 (alpha 0.45), `pantry_food` #E2B85A.
+
+### Placement suggestions (v2 plan coordinates)
+
+Coordinates as in the Revision 2 placement tables (x east, z south, rot = yaw: 0 = front faces south, 90 east, 180 north, 270 west; `#n` = row in that map's table). I checked each new footprint (plus a 0.5 m door-swing strip in front) against the v2 props, walls, openings, hider spawns and walkways with a small script: none of them overlaps a walkway, another floor prop, a wall or a spawn.
+
+**Map 1 - Plum Ballroom Gallery: 2 x `sideboard_walnut`**
+
+| Placement | x | z | rot | Notes |
+|---|---|---|---|---|
+| SB-1, west arm wall | 0.58 | 9.0 | 90 (faces E) | Back to the west wall, in front of pilaster #14's wall run, under sconce #24, south of frame #33. Ends at z 7.98 / 10.02, clear of armchair #77. Move folding screen **#74 from x 1.45 to x 1.60** so the doors open fully (the swing reaches x ~1.31). |
+| SB-2, north wall between pilasters #6 and #7 | 6.5 | 0.38 | 0 (faces S) | **Replaces chair #36, side table + lamp #37 and chair #38**. Balloon cluster #39 (6.5, 1.55) stays in front: balloons are soft and passable, so the doors still open and the cluster gives extra cover. Sconce #17 stays above. Not in front of a niche. |
+
+Not used: the north-wall bays in front of the 4 bust niches (blocks the niches) and the gallery south wall (the empty stand-in frame FR* #29 and palms #55/#56 must stay clear).
+
+**Map 2 - Sage Guest Wing**
+
+- `linen_cupboard`: **(2.6, 12.62, rot 180, faces N)**, back to the south wall of the linen closet (room x 0-4, z 10-13), facing the corridor door. Its swing strip is free and it is clear of spawn H10 (2, 11.8).
+- `bookshelf_gappy` replaces 9 of the 18 bookshelves (all with a free front strip): **#8** (9.45, 0.28), **#29** (3.6, 6.72), **#42** (12.27, 1.2), **#44** (12.27, 3.4), **#68** (20.4, 6.72), **#81** (6.6, 7.28), **#91** (22.5, 7.28), **#96** (6.1, 9.72), **#111** (3.72, 12.4). Same position and rot as the existing row. The corridor ones (#81, #91, #96) open onto walkway WC: a quick, risky hide.
+
+**Map 3 - Copper Pot Kitchen**
+
+| Asset | x | z | rot | Notes |
+|---|---|---|---|---|
+| `cupboard_base` CB-1 | 0.45 | 11.6 | 90 (faces E) | Kitchen west (brick) wall, south of walkway K2 (z ≤ 11.0); swing strip x 0.80-1.30 is clear. |
+| `cupboard_base` CB-2 | 17.45 | 6.9 | 90 (faces E) | Dry store, against the kitchen/dry-store wall, south of walkway D2. |
+| `cupboard_base` CB-3 | 22.6 | 7.55 | 180 (faces N) | Dry store south wall. |
+| `fridge_tall_open` | - | - | - | Replaces fridge **#10** (15.2, 0.5, rot 0) and **#68** (12.9, 13.5, rot 180); both have a free front strip. Fridges #1, #52, #53 stay `fridge_tall`. |
+| `rack_wire_sparse` | - | - | - | Replaces racks **#7** (11, 0.325), **#17** (0.325, 5.55), **#65** (8.8, 13.675), **#81** (22.3, 0.325), **#83** (23.675, 3.8) (5 of 13). Same position and rot. |
+
+---
+
 ## Revision 3 (2026-11-08): seeker paint blaster
 
 One new asset, `paint_blaster` (brief §10 "Seeker equipment (Revision 3)"). Nothing older changes. Both sheets are code-drawn (same header/grid/callout style as the Revision 2 ortho sheets, no AI images). Every view on both sheets is rendered from **one parametric 3D blockout** with a small z-buffer renderer, so side, top, front, 3/4, first-person and the scale sketch all agree with the numbers below.
