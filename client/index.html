@@ -176,9 +176,6 @@
   #phaseLbl { font: 800 14px 'Baloo 2'; color: #f6efe0; letter-spacing: 2px; text-shadow: 0 2px 0 #2a2030; }
   #roleBadge { position: absolute; left: 14px; top: 12px; font: 800 15px 'Baloo 2'; color: #fff; padding: 2px 14px; border-radius: 999px; border: 3px solid #2a2030; box-shadow: 0 3px 0 #2a2030; }
   #hidersLeft { position: absolute; right: 14px; top: 14px; font: 800 15px 'Baloo 2'; color: #f6efe0; background: rgba(42,32,48,0.75); padding: 3px 12px; border-radius: 10px; }
-  #pips { position: absolute; right: 14px; top: 50px; font: 800 13px 'Baloo 2'; color: #f6efe0; background: rgba(42,32,48,0.75); padding: 3px 12px; border-radius: 10px; }
-  #pips i { display: inline-block; width: 13px; height: 13px; border-radius: 50%; border: 2px solid #7FE3FF; margin-left: 6px; vertical-align: -2px; }
-  #pips i.on { background: #7FE3FF; }
   #feed { position: absolute; right: 14px; top: 90px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
   .feedItem { font: 700 13px 'Nunito'; color: #fff; background: rgba(42,32,48,0.8); padding: 3px 10px; border-radius: 8px; }
   .feedItem.tag { background: rgba(200,30,40,0.85); } .feedItem.miss { background: rgba(90,90,100,0.85); } .feedItem.good { background: rgba(38,166,154,0.9); }
@@ -268,6 +265,7 @@
     <div class="pp-slider pp-brush"><span>Size [ ]</span><input type="range" id="sizeSl" min="1" max="200"><input type="number" id="sizeNum" min="1" max="200"></div>
     <div class="pp-slider pp-brush"><span>Opacity</span><input type="range" id="opSl" min="0" max="100"><input type="number" id="opNum" min="0" max="100"></div>
     <div class="pp-slider pp-brush"><span>Hardness</span><input type="range" id="hdSl" min="0" max="100"><input type="number" id="hdNum" min="0" max="100"></div>
+    <div class="pp-slider"><span>Metallic</span><input type="range" id="mtSl" min="0" max="100"><input type="number" id="mtNum" min="0" max="100"></div>
   </div>
 </div>
 
@@ -279,7 +277,6 @@
   <div id="timerBox"><div id="timer">2:00</div><div id="phaseLbl">HIDE PHASE</div></div>
   <div id="roleBadge">HIDER</div>
   <div id="hidersLeft"></div>
-  <div id="pips" class="hidden"></div>
   <div id="feed"></div>
   <div id="blendMeter" class="hidden">BLEND <b>--</b><div><i></i></div></div>
 </div>
@@ -1205,10 +1202,10 @@ const COLL = {
   },
   // ray vs all boxes (+ floor/ceiling planes). Returns the nearest distance (<= maxDist).
   raycast(o, dir, maxDist, skip, noProps) {
-    let best = maxDist;
-    if (!noProps) best = PROPCOLL.raycast(o, dir, best); // furniture triangles (Revision 5)
-    if (dir.y < -1e-6) best = Math.min(best, (0.02 - o.y) / dir.y);
-    if (dir.y > 1e-6) best = Math.min(best, (CFG.ceiling - 0.02 - o.y) / dir.y);
+    let best = maxDist; const N = this.hitN.set(0, 0, 0);
+    if (!noProps) { best = PROPCOLL.raycast(o, dir, best); if (best < maxDist) N.copy(PROPCOLL.lastN); } // furniture triangles (Revision 5)
+    if (dir.y < -1e-6 && (0.02 - o.y) / dir.y < best) { best = (0.02 - o.y) / dir.y; N.set(0, 1, 0); }
+    if (dir.y > 1e-6 && (CFG.ceiling - 0.02 - o.y) / dir.y < best) { best = (CFG.ceiling - 0.02 - o.y) / dir.y; N.set(0, -1, 0); }
     for (const b of this.boxes) {
       if (b.noCamera || (skip && skip(b))) continue;
       const [lx, lz] = this.toLocal(b, o.x, o.z);
@@ -1221,10 +1218,17 @@ const COLL = {
         let a = (lo - oo) / dd, c = (hi - oo) / dd; if (a > c) [a, c] = [c, a];
         t0 = Math.max(t0, a); t1 = Math.min(t1, c); return t0 <= t1;
       };
-      if (slab(lx, ldx, -b.hx, b.hx) && slab(lz, ldz, -b.hz, b.hz) && slab(o.y, dir.y, b.y0, b.y1)) best = Math.min(best, t0);
+      if (slab(lx, ldx, -b.hx, b.hx) && slab(lz, ldz, -b.hz, b.hz) && slab(o.y, dir.y, b.y0, b.y1) && t0 < best) {
+        best = t0; // face normal of the box at the hit point (Revision 6: wall climbing needs it)
+        const hx = lx + ldx * t0, hz = lz + ldz * t0, hy = o.y + dir.y * t0, ex = b.hx - Math.abs(hx), ez = b.hz - Math.abs(hz), ey = Math.min(hy - b.y0, b.y1 - hy);
+        if (ey < ex && ey < ez) N.set(0, hy - b.y0 < b.y1 - hy ? -1 : 1, 0);
+        else { const [wx, wz] = ex < ez ? this.toWorldDir(b, Math.sign(hx) || 1, 0) : this.toWorldDir(b, 0, Math.sign(hz) || 1); N.set(wx, 0, wz); }
+      }
     }
+    if (N.dot(dir) > 0) N.negate();
     return best;
   },
+  hitN: new THREE.Vector3(),
   // nearest wall-like surface for the Lean pose: returns { point, normal (into the room), dist }
   nearestWall(p, maxDist, y = 1.0) {
     let best = null;
@@ -1269,8 +1273,10 @@ const COLL = {
 //    groundAtFull floor query (cupboard floors, the bookshelf cubby, rack decks).
 // =====================================================================================
 const _cq = new THREE.Vector3(), _cu = new THREE.Vector3(), _cm = new THREE.Vector3();
+const _cU = new THREE.Vector3(), _cR = new THREE.Vector3(), _cR2 = new THREE.Vector3(), _cD = new THREE.Vector3(), _cO = new THREE.Vector3(), _cN = new THREE.Vector3(),
+  _cM = new THREE.Vector3(), _cF = new THREE.Vector3(), _cX = new THREE.Vector3(), _cMat = new THREE.Matrix4(); // wall-climbing temporaries
 const PROPCOLL = {
-  entries: [], templates: new Map(), unsticks: 0, polys: [],
+  entries: [], templates: new Map(), unsticks: 0, polys: [], lastN: new THREE.Vector3(),
   // soft / clutter parts that never block (matched against the mesh name, its material and every ancestor node)
   SOFT: {
     banquet_table_round: /^cloth$|^centerpiece/, buffet_table: /^cake/, coat_rack: /^(coat|scarf)$/, urn_palm: /^fronds/,
@@ -1484,7 +1490,7 @@ const PROPCOLL = {
       const hit = e.bvh.raycastFirst(_pcRay, THREE.DoubleSide);
       if (!hit) continue;
       const d = _pcA.copy(hit.point).applyMatrix4(e.m).distanceTo(o);
-      if (d < best) best = d;
+      if (d < best) { best = d; this.lastN.copy(hit.face.normal).transformDirection(e.m); }
     }
     return best;
   },
@@ -2119,6 +2125,8 @@ function buildGallery() {
   framePic(15.5, 5.9, PI, 'mirror');
   framePic(25, 3.9, -PI / 2, 'portrait');
   framePic(0, 7.2, PI / 2, 'stilllife');
+  // Revision 6: an EMPTY frame hung 1 m up the wall: a climbing hider lies flat inside it (wall nook W1)
+  { const f = place('frame_ornate', 19.0, 5.9, PI, { y: 1.0 }); const cv = f.getObjectByName('canvas'); if (cv) cv.visible = false; }
   for (const x of [12.5, 17.8]) {
     const f = place('frame_ornate_big', x, 5.9, PI);
     const cv = f.getObjectByName('canvas'); if (cv) cv.visible = false; // EMPTY frame: hiders stand inside
@@ -2315,7 +2323,8 @@ function buildGallery() {
     ['N8', 6.4, 4.75, 0.75, 'Under the grand piano'], ['N9', 1.15, 8.6, 0.4, 'Crouch behind the folding screen'], ['N10', 8.65, 14.45, 0.5, 'Behind the alcove screen'],
     ['N11', 14.1, 8.9, 0.75, 'Gift-box pile'], ['N12', 11.5, 11.6, 1.1, 'Spread-eagle on the confetti rug'], ['N13', 24.35, 1.5, 0.55, 'NE corner by the clock'],
     ['N14', 24.4, 5.5, 0.5, 'SE dark corner'], ['N15', 0.8, 14.3, 0.6, 'Coat rack, dark SW corner'], ['N16', 15.3, 5.62, 0.45, 'Gilt chair at the table'],
-    ['N17', 1, 11.5, 0.5, 'Between the west armchairs'], ['N18', 7.5, 9.95, 0.5, 'Behind the urn palm']]));
+    ['N17', 1, 11.5, 0.5, 'Between the west armchairs'], ['N18', 7.5, 9.95, 0.5, 'Behind the urn palm']]),
+    { id: 'W1', x: 19.0, z: 5.895, y: 1.65, r: 0.4, desc: 'Flat on the wall inside the empty hung frame', pose: 'lieflat', wall: [0, -1], exact: true });
   const groundAt = (x, z) => (Math.hypot(x - 11.5, z - 11.6) < 2.0 ? rugTop : 0);
   return {
     group, spawns, seats, nooks, lights, groundAt, kit,
@@ -2506,7 +2515,7 @@ function buildGuestWing() {
   buildFerns(group, T([[11.5, 0.65], [9.85, 3.75], [6.05, 6.55], [11.5, 6.5], [0.5, 6.45], [20.4, 2], [12.55, 6.45], [3.5, 7.4], [15.6, 7.4], [23.5, 7.45], [0.5, 9.5], [15.3, 9.55], [20, 9.55], [23.5, 9.55]]), rnd);
 
   const fr = kit.place('frame_ornate', 12, 9.9, 180, { y: 1.2, noColl: true, noSeat: true });
-  const cv = fr.getObjectByName('canvas'); if (cv) cv.material = new THREE.MeshStandardMaterial({ map: TEX.painting('landscape', 5), roughness: 0.85 });
+  const cv = fr.getObjectByName('canvas'); if (cv) cv.visible = false; // Revision 6: empty hung frame (wall nook W1)
 
   // clutter zones c1..c8
   const pastel = [0xE8B4B8, 0xB5DCC8, 0xF3DE9A, 0xBFA8D6, 0xA9C8E8, 0xEFE6CF];
@@ -2534,7 +2543,9 @@ function buildGuestWing() {
       ['N4', 0.35, 2.1, 0.55, 'Behind the sheer curtain'], ['N5', 0.5, 3.5, 0.6, 'Red loveseat'], ['N6', 12, 5.1, 0.55, 'Lean in the doorway'], ['N7', 12.65, 2.3, 0.6, 'Bookshelf wall'],
       ['N8', 1.2, 12.45, 0.55, 'Laundry heap, linen closet'], ['N9', 2.6, 0.7, 0.4, 'Vanity kneehole'], ['N10', 22.8, 3.5, 0.85, 'Quilt of bed B'], ['N11', 11.45, 3.65, 0.45, 'Under the desk'],
       ['N12', 1.05, 1.95, 0.5, 'Rocking chair'], ['N13', 1.3, 0.6, 0.5, 'Laundry heap NW'], ['N14', 1.7, 3.4, 0.4, 'Behind the cheval mirror'], ['N15', 16.1, 0.3, 0.5, 'Behind the north curtain'],
-      ['N16', 17, 6.5, 0.55, 'Loveseat B'], ['N17', 6.6, 7.65, 0.5, 'Corridor bookshelf'], ['N18', 23.4, 6, 0.5, 'Dark SE corner of B']]).concat(extraNooks),
+      ['N16', 17, 6.5, 0.55, 'Loveseat B'], ['N17', 6.6, 7.65, 0.5, 'Corridor bookshelf'], ['N18', 23.4, 6, 0.5, 'Dark SE corner of B']]).concat(extraNooks,
+      [{ id: 'W1', x: 12, z: 9.895, y: 1.85, r: 0.4, desc: 'Flat on the wall inside the empty corridor frame', pose: 'lieflat', wall: [0, -1], exact: true },
+       { id: 'W2', x: 16.2, z: 6.895, y: 1.5, r: 0.4, desc: 'Flat against the sage floral wallpaper', pose: 'lieflat', wall: [0, -1], exact: true }]),
     bounds: [-0.6, -0.6, 24.6, 15.6],
     walkways: [[1.4, 4.4, 11.9, 5.8], [8.8, 5.8, 10.2, 6.9], [12.1, 4.4, 21, 5.8], [13.8, 5.8, 15.2, 6.9], [0.3, 7.8, 23.7, 9.2]],
     blindRoom: [18.1, 10.1, 24, 15], blindDoor: { x: 21, z: 9.3 },
@@ -2842,13 +2853,13 @@ class Player {
     this.teleport(s.x, s.z);
   }
   teleport(x, z, yaw) {
-    this.pos.set(x, groundAtFull(x, z, 0), z); this.vy = 0;
+    this.climb = null; this.pos.set(x, groundAtFull(x, z, 0), z); this.vy = 0;
     if (yaw !== undefined) { this.yaw = yaw; this.camYaw = yaw + Math.PI; }
     this.posed = null; this.blend = null; this.camDist = CFG.cam.back; // camera snaps back out after a teleport
     this.syncRoot();
   }
-  syncRoot(yawOff = 0) { this.man.root.position.copy(this.pos); this.man.root.rotation.y = this.yaw + yawOff; }
-  get center() { return new THREE.Vector3(this.pos.x, this.pos.y + (this.posed ? Math.max(0.15, this.posed.headY * 0.55) : (this.crouch ? 0.6 : 0.85) * HS), this.pos.z); }
+  syncRoot(yawOff = 0) { this.man.root.position.copy(this.pos); this.man.root.rotation.set(0, this.yaw + yawOff, 0); }
+  get center() { if (this.climb) return this.pos.clone().addScaledVector(this.climb.n, this.posed ? 0.12 : 0.4); return new THREE.Vector3(this.pos.x, this.pos.y + (this.posed ? Math.max(0.15, this.posed.headY * 0.55) : (this.crouch ? 0.6 : 0.85) * HS), this.pos.z); }
   markActive() { this.lastActivity = GAME.time; }
 
   // Start a 0.3 s blend from the current displayed state to (frame, pos, yaw)
@@ -2866,7 +2877,7 @@ class Player {
   }
 
   // ---- MOVING WHILE POSED (brief §3, Revision 2): 1.2 m/s, camera-relative, pose held, snapping kept,
-  // collision with the posed footprint, per-pose shuffle animation. Counts as activity for AI + Scan Pulse.
+  // collision with the posed footprint, per-pose shuffle animation. Counts as activity for AI suspicion.
   updatePosedMove(dt, dir) {
     const P = this.posed, map = GAME.map;
     if (dir) {
@@ -2925,6 +2936,95 @@ class Player {
     if (P.onBed !== undefined && !(map.lieSurfaces || []).some((b) => { const [lx, lz] = COLL.toLocal({ cx: b.x, cz: b.z, c: Math.cos(D2R(b.rot)), s: Math.sin(D2R(b.rot)) }, P.pos.x, P.pos.z); return Math.abs(lx) < b.w / 2 + 0.3 && Math.abs(lz) < b.l / 2 + 0.3; })) P.onBed = undefined;
     if (P.onBed !== undefined) P.pos.y = P.onBed; else this.posedGround(P);
   }
+  // =====================================================================================
+  //  WALL CLIMBING (Revision 6, reference: game-assets/reference/mecha_frames). A hider walks into a wall or a tall
+  //  vertical prop face and presses Space (or keeps pushing for 0.3 s): the wall becomes their floor. The body's
+  //  "up" is the wall normal n (so "down" is into the wall); W/S climb up/down, A/D move sideways (relative to the
+  //  camera), the body faces the way it climbs. Each step probes back into the wall (COLL.raycast: wall boxes + the
+  //  prop triangles) to stay stuck to it and follow its normal; anything sticking out along the way (props, corners)
+  //  blocks; the body stays below the ceiling. Poses work on the wall (Lie flat = flat against it facing out).
+  //  Space jumps off; climbing down onto the floor steps off. Moving on a wall counts as activity for AI suspicion.
+  // =====================================================================================
+  probe(o, dir, max) { const d = COLL.raycast(o, dir, max); if (d >= max) return null; return { dist: d, normal: COLL.hitN.clone(), point: o.clone().addScaledVector(dir, d) }; }
+  // a climbable face straight ahead: vertical at knee height and still there at ~1.25 m (tall enough)
+  wallAhead(dir) {
+    const d = new THREE.Vector3(dir[0], 0, dir[1]).normalize(), R = CFG.player.radius;
+    const a = this.probe(new THREE.Vector3(this.pos.x, this.pos.y + 0.4, this.pos.z), d, R + 0.14);
+    if (!a || Math.abs(a.normal.y) > 0.3 || a.normal.dot(d) > -0.5) return null;
+    const b = this.probe(new THREE.Vector3(this.pos.x, this.pos.y + 1.25, this.pos.z), d, R + 0.4);
+    if (!b || Math.abs(b.normal.y) > 0.3) return null;
+    const n = a.normal.setY(0).normalize();
+    return { n, point: new THREE.Vector3(a.point.x, this.pos.y + 0.3, a.point.z) };
+  }
+  enterWall(w) {
+    this.climb = { n: w.n.clone(), heading: 0 }; this.posed = null; this.blend = null; this.crouch = false; this.vy = 0; this.pushT = 0;
+    this.pos.copy(w.point).addScaledVector(w.n, 0.005);
+    this.camYaw = Math.atan2(w.n.x, w.n.z); this.camPitch = -0.15; this.markActive();
+    toast('On the wall - W/S climb, A/D sideways, Space jumps off');
+  }
+  leaveWall(jump) {
+    const C = this.climb; if (!C) return; this.climb = null; this.posed = null; this.blend = null;
+    this.pos.addScaledVector(C.n, jump ? 0.3 : 0.22); this.yaw = Math.atan2(C.n.x, C.n.z);
+    if (!jump) this.pos.y = groundAtFull(this.pos.x, this.pos.z, 0);
+    this.vy = jump ? 1.2 : 0; this.grounded = !jump; copyFrame(this.baseFrame, STAND_FRAME);
+    COLL.resolveCircle(this.pos, CFG.player.radius, this.pos.y, CFG.player.height, { step: STEP, unstick: true });
+    this.syncRoot(); this.markActive();
+  }
+  // a pose on the wall: same frames as on the floor, the wall is the support (lowest point touches it)
+  wallPose(name) {
+    const spec = POSES[name]; if (!spec || !this.climb) return null;
+    if (name === 'stand') { this.posed = null; return 'stand'; }
+    if (spec.align === 'sit' || spec.align === 'lean') { toast('Sit and Lean need a floor or a wall behind you'); return 'not on a wall'; }
+    const r = RIG.evaluate(spec); r.frame.pelvis.y -= r.minY;
+    if (spec.align === 'lie') this.climb.heading = Math.PI; // lying flat: head up the wall, facing out
+    this.posed = { name, align: 'wall', frame: r.frame, pos: this.pos.clone(), yaw: this.yaw, headY: (r.head.y - r.minY) * HS, fp: fpScaled(RIG.bounds(r.frame)), circles: [], onWall: true };
+    this.wallBlend = { from: copyFrame(makeFrame(), this.man.frame), t: 0 }; this.markActive();
+    return name + ' (on the wall)';
+  }
+  updateClimb(dt, may) {
+    const C = this.climb, n = C.n, U = _cU.set(0, 1, 0), man = this.man;
+    const space = INPUT.down('Space'), spaceEdge = space && !this._spaceWas; this._spaceWas = space;
+    if (may && spaceEdge && !GAME.paintMode) { this.leaveWall(true); return; }
+    let f = 0, st = 0;
+    if (may && !GAME.paintMode) { if (INPUT.down('KeyW')) f++; if (INPUT.down('KeyS')) f--; if (INPUT.down('KeyD')) st++; if (INPUT.down('KeyA')) st--; }
+    // sideways = the camera's right projected onto the wall plane
+    const Rv = _cR.set(Math.cos(this.camYaw), 0, -Math.sin(this.camYaw)); Rv.addScaledVector(n, -Rv.dot(n)); if (Rv.lengthSq() < 0.01) Rv.crossVectors(U, n); Rv.normalize();
+    this.speed = 0;
+    if (f || st) {
+      const d = _cD.set(0, f, 0).addScaledVector(Rv, st).normalize(), sp = this.posed ? CFG.player.posedSpeed : 1.6;
+      if (!this.posed) C.heading = Math.atan2(d.dot(Rv), d.y);
+      this.markActive(); this.speed = sp;
+      const total = sp * dt, nSub = Math.max(1, Math.ceil(total / 0.04));
+      for (let k = 0; k < nSub; k++) {
+        const step = total / nSub;
+        if (d.y < -0.3 && this.pos.y - step < 0.25) { this.leaveWall(false); return; } // reached the floor: step off
+        // blocked along the wall? (props sticking out, inner corners, frames are flat so they do not block)
+        const o = _cO.copy(this.pos).addScaledVector(n, 0.12);
+        if (COLL.raycast(o, d, step + 0.14) < step + 0.13) break;
+        const next = _cN.copy(this.pos).addScaledVector(d, step);
+        if (next.y > CFG.ceiling - 0.35) break;                                    // stay below the ceiling
+        if (next.y < 0.06 && d.y < -0.3) { this.leaveWall(false); return; }         // reached the floor: step off
+        const pr = this.probe(_cO.copy(next).addScaledVector(n, 0.3), _cM.copy(n).negate(), 0.6); // still on a wall?
+        if (!pr || Math.abs(pr.normal.y) > 0.3 || pr.normal.dot(n) < 0.85) break;
+        this.pos.copy(pr.point).addScaledVector(pr.normal, 0.005); n.copy(pr.normal).setY(0).normalize();
+      }
+      if (this.posed) this.posed.pos.copy(this.pos);
+    }
+    // orientation: body up = wall normal, body forward = climbing direction in the wall plane
+    const Rw = _cR2.crossVectors(U, n).normalize(), fwd = _cF.copy(U).multiplyScalar(Math.cos(C.heading)).addScaledVector(Rw, Math.sin(C.heading));
+    const X = _cX.crossVectors(n, fwd).normalize();
+    man.root.quaternion.setFromRotationMatrix(_cMat.makeBasis(X, n, fwd)); man.root.position.copy(this.pos);
+    // animation: wall pose (with a 0.3 s blend) or the walk cycle
+    if (this.posed) {
+      const B = this.wallBlend; if (B && B.t < 1) { B.t = Math.min(1, B.t + dt / CFG.pose.blend); blendFrames(man.frame, B.from, this.posed.frame, THREE.MathUtils.smootherstep(B.t, 0, 1)); } else copyFrame(man.frame, this.posed.frame);
+    } else {
+      blendFrames(this.baseFrame, this.baseFrame, STAND_FRAME, 1 - Math.exp(-dt * 10));
+      this.walkAmt = lerp(this.walkAmt, this.speed ? 1 : 0, 1 - Math.exp(-dt * 10)); this.phase += dt * (this.speed / (0.68 * HS)) * Math.PI;
+      walkOverlay(this.baseFrame, this.tmpFrame, this.phase, this.walkAmt * 0.6, false);
+      blendFrames(man.frame, man.frame, this.tmpFrame, 1 - Math.exp(-dt * 18));
+    }
+    man.apply(man.frame);
+  }
   // posed body follows the floor: rugs, or a prop floor it can step onto (cupboard, cubby, rack deck, counter shelf)
   posedGround(P) {
     if (P.onBed !== undefined || (P.align === 'sit' && P.onSeat)) return;
@@ -2934,6 +3034,7 @@ class Player {
 
   update(dt) {
     const map = GAME.map, may = hiderMayMove();
+    if (this.climb) { this.updateClimb(dt, may); return; } // Revision 6: on a wall
     const dir = may ? readMoveInput(this.camYaw) : null;
     const canWalk = may && !this.posed && !this.blend;
     let crouch = canWalk && (INPUT.down('KeyC') || INPUT.down('ControlLeft') || INPUT.down('ControlRight'));
@@ -2955,6 +3056,12 @@ class Player {
     }
     // ---- hop + gravity (the ground includes prop floors up to STEP above the feet)
     const ground = groundAtFull(this.pos.x, this.pos.z, this.pos.y);
+    // Revision 6: walk into a wall and press Space (or keep pushing into it for 0.3 s) to climb onto it
+    const space = INPUT.down('Space'), spaceEdge = space && !this._spaceWas; this._spaceWas = space;
+    if (canWalk && dir && this.grounded && !GAME.paintMode) {
+      const w = this.wallAhead(dir);
+      if (w) { this.pushT = (this.pushT || 0) + dt; if (spaceEdge || this.pushT > 0.3) { this.enterWall(w); return; } } else this.pushT = 0;
+    } else this.pushT = 0;
     if (canWalk && INPUT.down('Space') && this.grounded) { this.vy = CFG.player.hop; this.grounded = false; this.markActive(); }
     if (!this.posed && !this.blend) {
       this.vy -= CFG.player.gravity * dt; this.pos.y += this.vy * dt;
@@ -3012,7 +3119,7 @@ const CAM = {
     let wantH = p.crouch ? CFG.cam.pivotCrouch : CFG.cam.pivotStand;
     if (p.posed) wantH = clamp(p.posed.headY - 0.04, 0.3, CFG.cam.pivotStand);
     p.pivotH = lerp(p.pivotH, wantH, 1 - Math.exp(-dt * 8));
-    const pivot = this._pivot.set(p.pos.x, p.pos.y + p.pivotH, p.pos.z);
+    const pivot = p.climb ? this._pivot.copy(p.pos).addScaledVector(p.climb.n, p.posed ? 0.3 : 0.55) : this._pivot.set(p.pos.x, p.pos.y + p.pivotH, p.pos.z);
     camera.rotation.set(p.camPitch, p.camYaw, 0, 'YXZ');
     camera.updateMatrix();
     // desired offset: right 0.5, up 0.3, back 2.6 in camera space
@@ -3266,7 +3373,14 @@ class PaintCanvas {
     t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = true;
     t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
     t.needsUpdate = true;
-    this.material = new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.65, metalness: 0, name: 'mannequin_white' });
+    this.material = new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.65, metalness: 1, name: 'mannequin_white' });
+    // Revision 6 "Metallic": the paint texture doubles as the metalness map (alpha channel, inverted) + roughness drop
+    this.material.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <roughnessmap_fragment>', 'float pnsMetal = 1.0;\n#ifdef USE_MAP\n pnsMetal = 1.0 - texture2D( map, vMapUv ).a;\n#endif\nfloat roughnessFactor = mix( roughness, 0.22, pnsMetal );')
+        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * pnsMetal;');
+    };
+    this.material.customProgramCacheKey = () => 'pns_metal_paint';
     PAINT_CANVASES.set(this.material, this); // eyedropping a hider body reads this canvas
     this.TILE = CFG.paint.tile * this.k | 0 || 16; this.tilesX = Math.ceil(S / this.TILE);
     this.tileFlag = new Uint8Array(this.tilesX * this.tilesX); this.tileList = [];
@@ -3358,8 +3472,8 @@ class PaintCanvas {
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const sx = clamp(Math.round(x0 + x + ox), 0, S - 1), sy = clamp(Math.round(y0 + y + oy), 0, S - 1);
         const si = (sy * S + sx) * 4, ti = (y * w + x) * 4;
-        if (imap[sy * S + sx] !== id) { const di = ((y0 + y) * S + x0 + x) * 4; tmp[ti] = px[di]; tmp[ti + 1] = px[di + 1]; tmp[ti + 2] = px[di + 2]; }
-        else { tmp[ti] = px[si]; tmp[ti + 1] = px[si + 1]; tmp[ti + 2] = px[si + 2]; }
+        if (imap[sy * S + sx] !== id) { const di = ((y0 + y) * S + x0 + x) * 4; tmp[ti] = px[di]; tmp[ti + 1] = px[di + 1]; tmp[ti + 2] = px[di + 2]; tmp[ti + 3] = px[di + 3]; }
+        else { tmp[ti] = px[si]; tmp[ti + 1] = px[si + 1]; tmp[ti + 2] = px[si + 2]; tmp[ti + 3] = px[si + 3]; }
       }
       const strength = 0.85 * opacity;
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
@@ -3367,12 +3481,13 @@ class PaintCanvas {
         const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy); if (d >= r) continue;
         let a = d <= hr ? 1 : 1 - (d - hr) / soft; a = a * a * (3 - 2 * a) * strength; if (a <= 0) continue;
         const i = mi * 4, ti = ((y - y0) * w + (x - x0)) * 4;
-        px[i] += (tmp[ti] - px[i]) * a; px[i + 1] += (tmp[ti + 1] - px[i + 1]) * a; px[i + 2] += (tmp[ti + 2] - px[i + 2]) * a;
+        px[i] += (tmp[ti] - px[i]) * a; px[i + 1] += (tmp[ti + 1] - px[i + 1]) * a; px[i + 2] += (tmp[ti + 2] - px[i + 2]) * a; px[i + 3] += (tmp[ti + 3] - px[i + 3]) * a;
       }
       return;
     }
     // BRUSH / ERASER: raise the stroke coverage mask, then composite base -> color by coverage * opacity.
-    const c = tool === 'eraser' ? CFG.paint.baseColor : col; // eraser = back to the blank off-white
+    const c = tool === 'eraser' ? CFG.paint.baseColor : col; // eraser = back to the blank off-white (and matte)
+    const ca = tool === 'eraser' ? 255 : 255 - (col[3] || 0); // metalness byte (alpha: 255 matte .. 0 metal)
     for (let y = y0; y <= y1; y++) {
       const dy = y + 0.5 - cy;
       for (let x = x0; x <= x1; x++) {
@@ -3383,6 +3498,7 @@ class PaintCanvas {
         mask[mi] = na;
         const k = (na / 255) * opacity, i = mi * 4;
         px[i] = base[i] + (c[0] - base[i]) * k; px[i + 1] = base[i + 1] + (c[1] - base[i + 1]) * k; px[i + 2] = base[i + 2] + (c[2] - base[i + 2]) * k;
+        px[i + 3] = base[i + 3] + (ca - base[i + 3]) * k;
       }
     }
   }
@@ -3432,6 +3548,7 @@ class PaintCanvas {
       const mi = y * S + x, id = imap[mi]; if (!id || ip[id - 1] !== pi) continue;
       const i = mi * 4; this.markTile(x, y);
       px[i] = base[i] + (col[0] - base[i]) * opacity; px[i + 1] = base[i + 1] + (col[1] - base[i + 1]) * opacity; px[i + 2] = base[i + 2] + (col[2] - base[i + 2]) * opacity;
+      px[i + 3] = base[i + 3] + ((255 - (col[3] || 0)) - base[i + 3]) * opacity;
     }
     this.endStroke();
   }
@@ -3623,23 +3740,24 @@ const SURFACE_PICK = {
     const mat = Array.isArray(hit.object.material) ? hit.object.material[hit.face ? hit.face.materialIndex : 0] : hit.object.material;
     // hider bodies: read the paint canvas directly (exactly what was painted)
     const pc = PAINT_CANVASES.get(mat);
-    if (pc && hit.uv) { const S = pc.size, X = clamp(Math.floor(hit.uv.x * S), 0, S - 1), Y = clamp(Math.floor(hit.uv.y * S), 0, S - 1), i = (Y * S + X) * 4; return { rgb: [pc.pixels[i], pc.pixels[i + 1], pc.pixels[i + 2]], how: 'paint canvas' }; }
+    if (pc && hit.uv) { const S = pc.size, X = clamp(Math.floor(hit.uv.x * S), 0, S - 1), Y = clamp(Math.floor(hit.uv.y * S), 0, S - 1), i = (Y * S + X) * 4; return { rgb: [pc.pixels[i], pc.pixels[i + 1], pc.pixels[i + 2]], metal: 1 - pc.pixels[i + 3] / 255, how: 'paint canvas' }; }
     if (!mat || !mat.color || mat.isMeshBasicMaterial || mat.isShaderMaterial) return null;                 // unlit -> screen
     if (mat.emissive && mat.emissiveIntensity * Math.max(mat.emissive.r, mat.emissive.g, mat.emissive.b) > 0.3) return null; // glowing -> screen
     // metals get their look from reflections, not their base colour; the lit screen colour matches diffuse paint better
-    if ((mat.metalness || 0) >= 0.5) return null;                                                            // metal -> screen
+    if ((mat.metalness || 0) >= 0.5) return { rgb: null, metal: mat.metalness, how: (mat.name || 'metal') + ' (metal, lit colour)' }; // metal -> screen colour + Metallic slider
     const col = mat.color.clone();                                                                           // linear
     if (mat.map) { if (!hit.uv) return null; const t = this.sampleTex(mat.map, hit.uv); if (!t) return null; col.multiply(t); }
     if (mat.vertexColors && hit.object.geometry.attributes.color && hit.face) { const ca = hit.object.geometry.attributes.color; col.multiply(new THREE.Color(ca.getX(hit.face.a), ca.getY(hit.face.a), ca.getZ(hit.face.a))); }
     if (hit.object.isInstancedMesh && hit.object.instanceColor && hit.instanceId !== undefined) { const ic = new THREE.Color(); hit.object.getColorAt(hit.instanceId, ic); col.multiply(ic); }
     const out = {}; col.getRGB(out, THREE.SRGBColorSpace);
-    return { rgb: [out.r, out.g, out.b].map((v) => clamp(Math.round(v * 255), 0, 255)), how: (mat.name || 'surface') + (mat.map ? ' texture' : ' colour') + (mat.metalness > 0.5 ? ' (metal)' : '') };
+    return { rgb: [out.r, out.g, out.b].map((v) => clamp(Math.round(v * 255), 0, 255)), metal: mat.metalness || 0, how: (mat.name || 'surface') + (mat.map ? ' texture' : ' colour') + (mat.metalness > 0.5 ? ' (metal)' : '') };
   },
 };
 const PAINT_CANVASES = new WeakMap(); // material -> PaintCanvas (filled by the PaintCanvas constructor)
 
 const PAINT = {
-  canvas: null, tool: 'brush', color: [74, 31, 61], size: 40, opacity: 1, hardness: 0.6,
+  canvas: null, tool: 'brush', color: [74, 31, 61], size: 40, opacity: 1, hardness: 0.6, metal: 0,
+  paintCol() { return [this.color[0], this.color[1], this.color[2], Math.round(this.metal * 255)]; }, // [r, g, b, metalness 0-255]
   recent: [], eyedropArmed: false, stroking: false, orbiting: false, last: null, lastDist: 2.5,
   raycaster: new THREE.Raycaster(), _ndc: new THREE.Vector2(),
   TOOLS: { brush: 'Round brush', fill: 'Flat fill', smudge: 'Smudge', eraser: 'Eraser', stamp: 'Project stamp' },
@@ -3657,7 +3775,7 @@ const PAINT = {
   dabAt(sx, sy) {
     const hit = this.pick(sx, sy); if (!hit) { this.canvas.prevDab.clear(); return null; }
     this.lastDist = hit.distance;
-    this.canvas.dabAtHit(GAME.player.man, hit, this.radiusWorld, this.tool, this.color, this.opacity, this.hardness);
+    this.canvas.dabAtHit(GAME.player.man, hit, this.radiusWorld, this.tool, this.paintCol(), this.opacity, this.hardness);
     return hit;
   },
   // Stroke interpolation: step in screen space every 25% of the brush diameter and raycast each sample.
@@ -3681,7 +3799,7 @@ const PAINT = {
   },
   fillAt(sx, sy) {
     const hit = this.pick(sx, sy); if (!hit) return false;
-    this.canvas.fillPart(hit.object.userData.part, this.color, this.opacity); this.pushRecent(this.color);
+    this.canvas.fillPart(hit.object.userData.part, this.paintCol(), this.opacity); this.pushRecent(this.color);
     toast('Filled ' + hit.object.userData.part.replace('_', ' '));
     return true;
   },
@@ -3694,11 +3812,11 @@ const PAINT = {
   // Eyedropper: the surface's own base colour (SURFACE_PICK); Shift = the old "screen colour" (lit, tone-mapped pixel)
   eyedrop(sx, sy, screen = false) {
     let c = null, how = 'screen colour';
-    if (!screen) { const r = SURFACE_PICK.pick(sx, sy); if (r) { c = r.rgb; how = r.how; } }
+    if (!screen) { const r = SURFACE_PICK.pick(sx, sy); if (r) { c = r.rgb; how = r.how; if (r.metal !== undefined) this.metal = clamp(r.metal, 0, 1); } }
     if (!c) c = POST.samplePixel(sx, sy);
     this.lastPickHow = how;
     this.setColor(c.map(Math.round), 'eyedrop'); this.eyedropArmed = false; PANEL.sync();
-    toast('Picked ' + rgbToHex(...c) + ' - ' + how);
+    toast('Picked ' + rgbToHex(...c) + (this.metal > 0.01 ? ' ' + Math.round(this.metal * 100) + '% metallic' : '') + ' - ' + how);
     return this.color;
   },
   setColor(rgb, src) { this.color = rgb.map((v) => clamp(Math.round(v), 0, 255)); if (src === 'eyedrop' || src === 'swatch') this.pushRecent(this.color); PANEL.sync(src); },
@@ -3759,6 +3877,7 @@ const PANEL = {
     pair('sizeSl', 'sizeNum', (v) => PAINT.setSize(v));
     pair('opSl', 'opNum', (v) => { PAINT.opacity = clamp(v / 100, 0, 1); this.sync(); });
     pair('hdSl', 'hdNum', (v) => { PAINT.hardness = clamp(v / 100, 0, 1); this.sync(); });
+    pair('mtSl', 'mtNum', (v) => { PAINT.metal = clamp(v / 100, 0, 1); this.sync(); }); // Revision 6: Metallic
     $('hexIn').onchange = (e) => { const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(e.target.value.trim()); if (m) PAINT.setColor(hexToRgb(m[1]), 'hex'); else this.sync(); };
     $('btnEye').onclick = () => { PAINT.eyedropArmed = !PAINT.eyedropArmed; this.sync(); };
     $('btnUndo').onclick = () => PAINT.undo(); $('btnRedo').onclick = () => PAINT.redo();
@@ -3801,6 +3920,7 @@ const PANEL = {
     set('sizeSl', PAINT.size); set('sizeNum', PAINT.size);
     set('opSl', Math.round(PAINT.opacity * 100)); set('opNum', Math.round(PAINT.opacity * 100));
     set('hdSl', Math.round(PAINT.hardness * 100)); set('hdNum', Math.round(PAINT.hardness * 100));
+    set('mtSl', Math.round(PAINT.metal * 100)); set('mtNum', Math.round(PAINT.metal * 100));
     $('curColor').style.background = hex; $('curHex').textContent = hex;
     $('btnEye').classList.toggle('on', PAINT.eyedropArmed);
     for (const t of $('tools').children) t.classList.toggle('on', t.dataset.tool === PAINT.tool);
@@ -3922,6 +4042,7 @@ const POSE_UI = {
   // ---- placement: ghost preview, wheel = yaw in 5 deg steps, left click = lock (0.3 s blend)
   beginPlacement(name) {
     const p = GAME.player; if (!p) return;
+    if (p.climb) { p.wallPose(name); return; } // on a wall: pose in place against it
     if (name === 'stand') { this.standUp(); return; }
     this.placement = { name, yaw: p.yaw, dirty: true, res: null };
     setHint('Mouse wheel: rotate  ·  Left click: lock pose  ·  Right click / X: cancel');
@@ -3940,6 +4061,7 @@ const POSE_UI = {
   },
   standUp() {
     const p = GAME.player; if (!p) return;
+    if (p.climb) { p.posed = null; return; }
     this.cancelPlacement();
     if (!p.posed && !p.blend) return;
     const pos = p.posed ? p.posed.pos.clone() : p.pos.clone();
@@ -4189,12 +4311,11 @@ const NAMES = { hiders: ['Pip', 'Mabel', 'Otto', 'Juniper', 'Wren'], seekers: ['
 class HiderAgent {
   constructor(o) {
     Object.assign(this, { alive: true, points: 0, nerves: 0, survived: 0, taggedBy: null, tagT: null, snapshot: null, shimmerUntil: -9, lastAct: -99 }, o);
-    this.reveal = 0; // scan-pulse outline timer
   }
   get man() { return this.isPlayer ? GAME.player.man : this._man; }
   get canvas() { return this.isPlayer ? PAINT.canvas : this._canvas; }
   get pos() { return this.isPlayer ? GAME.player.pos : this._man.root.position; }
-  get center() { return this.isPlayer ? GAME.player.center : new THREE.Vector3(this._man.root.position.x, this._man.root.position.y + this.cy, this._man.root.position.z); }
+  get center() { return this.isPlayer ? GAME.player.center : this.wallCenter ? this.wallCenter.clone() : new THREE.Vector3(this._man.root.position.x, this._man.root.position.y + this.cy, this._man.root.position.z); }
   get lastActivity() { return this.isPlayer ? Math.max(GAME.player.lastActivity, this.lastAct) : this.lastAct; }
   dispose() { if (this._man) { scene.remove(this._man.root); ALL_MANS.delete(this._man); this._canvas.texture.dispose(); this._canvas.material.dispose(); } }
 }
@@ -4202,6 +4323,14 @@ class HiderAgent {
 // AI hider: pick a nook, pose with surface snapping, then camouflage itself with project stamps from 2 seeker-ish viewpoints
 function makeAIHider(name, nook, rnd) {
   const canvas = new PaintCanvas(1024), man = new Mannequin(canvas.material); scene.add(man.root); ALL_MANS.add(man);
+  if (nook.wall) { // Revision 6: flat against the wall (body up = wall normal), centred on the spot, head up
+    const n = new THREE.Vector3(nook.wall[0], 0, nook.wall[1]).normalize(), U = new THREE.Vector3(0, -1, 0), X = new THREE.Vector3().crossVectors(n, U); // body forward = down: head up
+    const e = RIG.evaluate(POSES.lieflat); e.frame.pelvis.y -= e.minY; const fp = fpScaled(RIG.bounds(e.frame)), cx = (fp.minX + fp.maxX) / 2, cz = (fp.minZ + fp.maxZ) / 2;
+    man.apply(e.frame); man.root.scale.setScalar(HS); man.root.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, n, U));
+    man.root.position.set(nook.x, nook.y, nook.z).addScaledVector(X, -cx).addScaledVector(U, -cz).addScaledVector(n, 0.005); man.root.updateMatrixWorld(true);
+    const a = new HiderAgent({ id: 'ai_' + name, name, isPlayer: false, _man: man, _canvas: canvas, pose: 'lieflat', nook, cy: 0.12 });
+    a.wallCenter = new THREE.Vector3(nook.x, nook.y, nook.z).addScaledVector(n, 0.1); a.stampQueue = 5; return a;
+  }
   const d = nook.desc.toLowerCase();
   const pose = nook.pose || (/spread/.test(d) ? 'spread' : /lie|quilt|floor/.test(d) ? 'lieflat' : /curl|heap|pile|under|cushion/.test(d) ? 'curl' : /sit|chair|loveseat|seat/.test(d) ? 'sit'
     : /lean|wall|bookshel|rack|brick|doorway/.test(d) ? 'lean' : /crouch|behind|corner|crates|kneehole/.test(d) ? 'crouch' : /frame|wardrobe|curtain|mirror|backsplash/.test(d) ? 'stand' : 'curl');
@@ -4240,7 +4369,7 @@ function aiCamouflageStep(h, rnd) {
   if (!h.snapCam) h.snapCam = { pos: best.clone(), target: c.clone() };
 }
 
-// ---- seeker tools shared by AI and the human seeker: tag ray, scribble circle, miss pop, scan pulse, flashlight
+// ---- seeker tools shared by AI and the human seeker: tag ray, scribble circle, miss pop
 const TOOLS = {
   ray: new THREE.Raycaster(),
   // raycast from origin along dir: first hit among hiders vs the environment (map meshes). <= 25 m.
@@ -4275,49 +4404,17 @@ const TOOLS = {
     const el = document.createElement('div'); el.className = 'missPop'; el.textContent = '✗ −2s'; el.style.left = screenX + 'px'; el.style.top = screenY + 'px';
     document.body.appendChild(el); setTimeout(() => el.remove(), 1200); AUDIO.sfx('buzz');
   },
-  // expanding ring on the floor around the seeker (visual for the Scan Pulse)
-  pulseRing(pos) {
-    const g = new THREE.RingGeometry(0.9, 1.0, 64); g.rotateX(-Math.PI / 2);
-    const m = new THREE.MeshBasicMaterial({ color: 0x7FE3FF, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
-    const ring = new THREE.Mesh(g, m); ring.position.set(pos.x, 0.05, pos.z); ring.userData.hideForStamp = true; scene.add(ring); AUDIO.sfx('whoosh');
-    FX.push({ t: 0, life: 1.2, update(dt) { this.t += dt; const s = 1 + this.t * 16; ring.scale.set(s, 1, s); m.opacity = 0.7 * (1 - this.t / 1.2); }, done() { scene.remove(ring); g.dispose(); m.dispose(); } });
-  },
-  makeFlashlight(shadow) {
-    const s = new THREE.SpotLight(0xFFF4DD, 0, 22, 0.42, 0.55, 1.4); s.userData.flash = true;
-    if (shadow) { s.castShadow = true; s.shadow.mapSize.set(512, 512); s.shadow.bias = -0.0005; s.shadow.normalBias = 0.03; s.shadow.camera.near = 0.2; s.shadow.camera.far = 22; }
-    scene.add(s, s.target); return s;
-  },
-  inDark(x, z) { return (GAME.map.darkZones || []).some(([dx, dz, r]) => Math.hypot(x - dx, z - dz) < r) || (GAME.map.blindRoom && false); },
 };
 // short-lived visual effects (scribbles, rings)
 const FX = [];
 function updateFX(dt) { for (let i = FX.length - 1; i >= 0; i--) { const f = FX[i]; f.update(dt); if (f.t >= f.life) { f.done(); FX.splice(i, 1); } } }
 function clearFX() { while (FX.length) FX.pop().done(); }
 
-// ---- scan-pulse outline: inverted-hull glow around revealed hiders (2 s), visible only to seekers
-const OUTLINE = {
-  mat: null,
-  init() {
-    this.mat = new THREE.ShaderMaterial({ uniforms: { uA: { value: 0 } }, side: THREE.BackSide, transparent: true, depthWrite: false,
-      vertexShader: 'void main(){ vec3 p = position + normal * 0.025; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }',
-      fragmentShader: 'uniform float uA; void main(){ gl_FragColor = vec4(0.5, 0.9, 1.0, uA); }' });
-  },
-  // per hider: child meshes sharing the hider's geometry
-  attach(h) {
-    if (h.outline) return; h.outline = [];
-    for (const m of h.man.meshes) { const o = new THREE.Mesh(m.geometry, this.mat); o.userData.hideForStamp = true; o.layers.set(0); m.add(o); h.outline.push(o); }
-  },
-  update(hiders, seekerIsHuman) {
-    let a = 0;
-    for (const h of hiders) { const vis = seekerIsHuman && h.reveal > 0 && h.alive; if (vis) this.attach(h); if (h.outline) h.outline.forEach((o) => (o.visible = vis)); if (vis) a = Math.max(a, Math.min(1, h.reveal) * 0.55); }
-    this.mat.uniforms.uA.value = a;
-  },
-};
 
 // ---- AI SEEKER: patrol nooks + walkways along A* paths, study spots, accumulate suspicion from DETECT, investigate, tag.
 class SeekerAI {
   constructor(name, spawn, idx, diff, opts = {}) {
-    this.name = name; this.isPlayer = false; this.points = 0; this.tags = 0; this.misses = 0; this.scans = 2; this.idx = idx;
+    this.name = name; this.isPlayer = false; this.points = 0; this.tags = 0; this.misses = 0; this.idx = idx;
     this.D = DIFFICULTY[diff] || DIFFICULTY.normal;
     this.mat = new THREE.MeshStandardMaterial({ color: idx ? 0x3B3046 : 0x2E3A4A, roughness: 0.55 });
     if (opts.material) this.mat = opts.material; this.infected = !!opts.infected;
@@ -4325,12 +4422,11 @@ class SeekerAI {
     this.man.meshes.forEach((m) => m.layers.disable(2)); BLASTER.equip(this.man, this.infected); if (this.infected) BLASTER.glow(this.man);
     this.pos = new THREE.Vector3(spawn.x, 0, spawn.z); this.yaw = Math.PI; this.look = this.yaw; this.pitch = -0.08;
     this.cam = new THREE.PerspectiveCamera(this.D.fov, 16 / 9, 0.1, 40);
-    this.flash = TOOLS.makeFlashlight(idx === 0); this.flashOn = false;
     this.frame = makeFrame(); this.tmp = makeFrame(); this.phase = 0; this.speed = 0;
     this.state = 'wait'; this.path = null; this.susp = new Map(); this.target = null; this.timer = 0; this.visited = new Set(); this.nerve = new Map();
     this.rnd = mulberry32(1000 + idx * 77);
   }
-  dispose() { scene.remove(this.man.root, this.flash, this.flash.target); ALL_MANS.delete(this.man); this.mat.dispose(); if (this.flash.shadow.map) this.flash.shadow.map.dispose(); }
+  dispose() { scene.remove(this.man.root); ALL_MANS.delete(this.man); this.mat.dispose(); }
   eye() { return new THREE.Vector3(this.pos.x, 1.5, this.pos.z); }
   goTo(x, z) { this.path = GAME.map.nav.path(this.pos.x, this.pos.z, x, z); this.pi = 1; return !!this.path; }
   pickPatrol() {
@@ -4391,10 +4487,6 @@ class SeekerAI {
         break;
       }
     }
-    // scan pulse at ~40% and ~75% of the seek time, or when moderately suspicious
-    if (ROUND.phase === 'seek' && this.scans > 0) { const f = 1 - ROUND.t / ROUND.seekTime; if ((this.scans === 2 && f > 0.4 + this.idx * 0.05) || (this.scans === 1 && f > 0.75)) this.scan(); }
-    // flashlight auto-on in dark areas
-    this.flashOn = ROUND.phase === 'seek' && (TOOLS.inDark(this.pos.x, this.pos.z) || (this.target && this.state !== 'patrol'));
     this.animate(dt);
   }
   // fire a tag ray at a world point (AI "click"); wrong guesses and misses cost 5 s
@@ -4404,26 +4496,16 @@ class SeekerAI {
     ROUND.tagAttempt(this, res, null);
     if (!res.hider && this.target && !guess) this.susp.set(this.target, (this.susp.get(this.target) || 0) * 0.5);
   }
-  scan() {
-    this.scans--; TOOLS.pulseRing(this.pos); ROUND.feed(`${this.name} used a Scan Pulse`);
-    for (const h of ROUND.hiders) {
-      if (!h.alive || GAME.time - h.lastActivity > 3 || h.pos.distanceTo(this.pos) > 20) continue;
-      h.reveal = 2; this.susp.set(h, Math.max(this.susp.get(h) || 0, this.D.threshold * 0.7)); // moved/painted recently: go check
-    }
-  }
   animate(dt) {
     this.phase += dt * (this.speed / 0.68) * Math.PI;
     walkOverlay(STAND_FRAME, this.tmp, this.phase, clamp(this.speed / 3, 0, 1), false); holdGunPose(this.tmp);
     blendFrames(this.frame, this.frame, this.tmp, 1 - Math.exp(-dt * 14));
     this.man.apply(this.frame); this.man.root.position.copy(this.pos); this.man.root.rotation.y = this.yaw;
     if (this.man.parts.neck) { let a = this.look - this.yaw; a = Math.atan2(Math.sin(a), Math.cos(a)); this.man.parts.neck.rotation.y = clamp(a, -1, 1); }
-    // eye camera + flashlight follow the look direction
+    // eye camera follows the look direction
     this.cam.position.set(this.pos.x, 1.5, this.pos.z);
     this.cam.rotation.set(this.pitch, this.look + Math.PI, 0, 'YXZ'); this.cam.updateMatrixWorld();
     const f = new THREE.Vector3(Math.sin(this.look), this.pitch, Math.cos(this.look));
-    this.flash.position.set(this.pos.x + f.x * 0.25, 1.35, this.pos.z + f.z * 0.25); this.flash.target.position.set(this.pos.x + f.x * 6, 1.35 + this.pitch * 6 - 0.6, this.pos.z + f.z * 6);
-    this.flash.intensity = lerp(this.flash.intensity, this.flashOn ? 40 : 0, 1 - Math.exp(-dt * 10));
-    this.flash.shadow.autoUpdate = this.flash.intensity > 0.5; // no shadow-map renders while the torch is off
   }
   // one detection job against hider h (called round-robin by ROUND)
   detect(h, dt) {
@@ -4441,29 +4523,24 @@ class SeekerAI {
   }
 }
 
-// ---- HUMAN SEEKER (Seeker practice): first-person, flashlight F, zoom RMB, Scan Pulse R, tag LMB
+// ---- HUMAN SEEKER (Seeker practice): first-person, zoom RMB, tag LMB
 class SeekerPlayer {
   constructor(spawn) {
-    this.name = 'You'; this.isPlayer = true; this.points = 0; this.tags = 0; this.misses = 0; this.scans = 2;
+    this.name = 'You'; this.isPlayer = true; this.points = 0; this.tags = 0; this.misses = 0;
     this.pos = new THREE.Vector3(spawn.x, 0, spawn.z); this.yaw = Math.PI; this.pitch = 0; this.vy = 0; this.zoom = 0;
-    this.flash = TOOLS.makeFlashlight(true); this.flashOn = false; this.flashManual = null; this.bob = 0;
+    this.bob = 0;
   }
-  dispose() { scene.remove(this.flash, this.flash.target); if (this.flash.shadow.map) this.flash.shadow.map.dispose(); }
+  dispose() {}
   update(dt) {
     const may = GAME.state === 'play' && ROUND.phase === 'seek';
     const dir = may ? readMoveInput(this.yaw + Math.PI) : null, sprint = INPUT.down('ShiftLeft') || INPUT.down('ShiftRight');
     if (dir) { const sp = sprint ? 5.7 : 3.5; COLL.move(this.pos, dir[0] * sp * dt, dir[1] * sp * dt, 0.26, 0, 1.6, { step: STEP }); } // sub-stepped, real furniture shapes
-    const dark = TOOLS.inDark(this.pos.x, this.pos.z);
-    this.flashOn = may && (this.flashManual !== null ? this.flashManual : dark);
-    if (dark && !this.wasDark) this.flashManual = null; this.wasDark = dark; // auto-on again on entering a dark area
     this.zoom = lerp(this.zoom, INPUT.buttons & 2 ? 1 : 0, 1 - Math.exp(-dt * 10));
     camera.fov = lerp(70, 45, this.zoom); camera.updateProjectionMatrix();
     if (may && INPUT.locked && (INPUT.buttons & 1)) this.tag(innerWidth / 2, innerHeight / 2); // hold to keep firing (3/s)
     camera.position.set(this.pos.x, 1.5, this.pos.z); camera.rotation.set(this.pitch, this.yaw + Math.PI, 0, 'YXZ');
     camera.updateMatrixWorld();
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    this.flash.position.copy(camera.position).addScaledVector(f, 0.2).add(new THREE.Vector3(0, -0.15, 0)); this.flash.target.position.copy(camera.position).addScaledVector(f, 6);
-    this.flash.intensity = lerp(this.flash.intensity, this.flashOn ? 40 : 0, 1 - Math.exp(-dt * 12)); this.flash.shadow.autoUpdate = this.flash.intensity > 0.5;
   }
   tag(sx, sy) {
     if (ROUND.phase !== 'seek' || GAME.time < (this.nextShot || 0)) return;
@@ -4472,7 +4549,6 @@ class SeekerPlayer {
     const res = TOOLS.tagRay(rc.ray.origin, rc.ray.direction);
     BLASTER.fpShot(res, this.infected); ROUND.tagAttempt(this, res, [sx, sy]);
   }
-  scan() { if (this.scans <= 0 || ROUND.phase !== 'seek') return; if (ROUND.online) { NET.send({ type: 'scan' }); TOOLS.pulseRing(this.pos); return; } this.scans--; TOOLS.pulseRing(this.pos); for (const h of ROUND.hiders) if (h.alive && GAME.time - h.lastActivity <= 3 && h.pos.distanceTo(this.pos) < 20) h.reveal = 2; HUD.update(); }
 }
 // ------------------------------------------------------------------ 13. ROUND LOOP (offline): HIDE -> SEEK -> RESULTS
 // Scoring (brief §2):  hiders  +1 per second survived in SEEK, +50 "Nerves of Steel" each time a seeker is within 2 m
@@ -4512,6 +4588,9 @@ const ROUND = {
     for (const h of this.hiders) if (!h.isPlayer) h.dispose();
     for (const s of this.seekers) s.dispose();
     this.hiders = []; this.seekers = []; this.human = null; clearFX(); BLASTER.clearSplats();
+    this.spectate = null; $('specLabel').classList.add('hidden'); this.winner = null; // Revision 6: nothing from the last round leaks into the next
+    if (GAME.player) { GAME.player.out = false; GAME.player.posed = null; GAME.player.blend = null; GAME.player.vy = 0; GAME.player.man.root.visible = true; if (GAME.player.climb) GAME.player.leaveWall(true); }
+    POSE_UI.close(false); POSE_UI.cancelPlacement();
     if (GAME.paintMode) exitPaint(true);
     camera.fov = CFG.cam.fov; camera.updateProjectionMatrix();
   },
@@ -4529,7 +4608,7 @@ const ROUND = {
   },
   startSeekVisuals() {
     $('blindfold').classList.add('hidden'); POSE_UI.close(false); POSE_UI.cancelPlacement(); updateCrosshair();
-    this.banner('SEEK!', this.mode === 'hider' ? 'Seekers are armed! Keep moving or stay still - fresh paint shimmers.' : 'Find them: click to tag, R scan, F flashlight, right mouse zoom');
+    this.banner('SEEK!', this.mode === 'hider' ? 'Seekers are armed! Keep moving or stay still - fresh paint shimmers.' : 'Find them: click to tag, right mouse zoom');
     AUDIO.sfx('sting');
   },
   snapPlayer() {
@@ -4564,7 +4643,7 @@ const ROUND = {
     if (this.phase === 'hide') { const h = this.hiders.find((x) => !x.isPlayer && x.stampQueue > 0); if (h) { h.stampQueue--; aiCamouflageStep(h, mulberry32(this.job++ + 7)); } }
     if (this.phase === 'hide' && this.t <= 0) this.startSeek();
     else if (this.phase === 'seek') {
-      for (const h of this.hiders) if (h.alive) { h.survived += dt; h.reveal = Math.max(0, h.reveal - dt); }
+      for (const h of this.hiders) if (h.alive) h.survived += dt;
       this.nerves(dt);
       // detection: round-robin one (AI seeker, hider) pair every 3rd frame
       const ais = this.seekers.filter((s) => !s.isPlayer), alive = this.hiders.filter((h) => h.alive);
@@ -4574,7 +4653,6 @@ const ROUND = {
     for (const s of this.seekers) s.update(dt);
     // shimmer on recently painted hiders (SEEK touch-ups are visible for ~1.5 s)
     for (const h of this.hiders) { const m = h.canvas.material, on = GAME.time < h.shimmerUntil; m.emissive.setRGB(1, 1, 1); m.emissiveIntensity = on ? 0.18 + 0.14 * Math.sin(GAME.time * 40) : 0; }
-    OUTLINE.update(this.hiders, this.mode === 'seeker');
   },
   // Nerves of Steel: seeker within 2 m, hider in the central 30% of its view for >= 1 s, seeker leaves without tagging
   nerves(dt) {
@@ -4594,10 +4672,9 @@ const ROUND = {
   updateOnline(dt) {
     this.t = Math.max(0, this.t - dt);
     const sec = Math.ceil(this.t); if (sec !== this.lastSec) { this.lastSec = sec; HUD.update(); if (this.phase === 'seek' && sec <= 10 && sec > 0) AUDIO.sfx('tick'); }
-    for (const h of this.hiders) { if (h.isRemote) h.update(dt); h.reveal = Math.max(0, h.reveal - dt); }
+    for (const h of this.hiders) if (h.isRemote) h.update(dt);
     for (const s of this.seekers) s.update(dt);
     for (const h of this.hiders) { const m = h.canvas.material, on = GAME.time < h.shimmerUntil; m.emissive.setRGB(1, 1, 1); m.emissiveIntensity = on ? 0.18 + 0.14 * Math.sin(GAME.time * 40) : 0; }
-    OUTLINE.update(this.hiders, this.mode === 'seeker');
   },
   onPaint() { const h = this.playerHider; if (!h || this.phase !== 'seek') return; h.shimmerUntil = GAME.time + 1.5; h.lastAct = GAME.time; },
   end(winner) {
@@ -4612,7 +4689,7 @@ const ROUND = {
   stop() { this.cleanup(); this.active = false; this.online = false; this.phase = 'idle'; HUD.show(false); $('blindfold').classList.add('hidden'); AUDIO.music(false); },
 };
 
-// ---- HUD: big timer, phase, role badge, hiders left, scan pips, feed, blend meter
+// ---- HUD: big timer, phase, role badge, hiders left, feed, blend meter
 const HUD = {
   show(v) { $('hud').classList.toggle('hidden', !v); },
   update() {
@@ -4624,8 +4701,6 @@ const HUD = {
     $('roleBadge').textContent = ROUND.mode === 'hider' ? (GAME.player.out ? 'SPECTATING' : 'HIDER') : ROUND.human && ROUND.human.infected ? 'INFECTED' : 'SEEKER';
     $('roleBadge').style.background = ROUND.mode === 'hider' ? '#26A69A' : '#E5484D';
     $('hidersLeft').textContent = ROUND.gameMode === 'infection' ? `Infected ${ROUND.seekers.length} / Survivors ${ROUND.hiders.filter((h) => h.alive).length}` : `${ROUND.hiders.filter((h) => h.alive).length} / ${ROUND.hiders.length} hiders left`;
-    const h = ROUND.human; $('pips').classList.toggle('hidden', !h);
-    if (h) $('pips').innerHTML = 'SCAN ' + [0, 1].map((i) => `<i class="${i < h.scans ? 'on' : ''}"></i>`).join('');
     $('blindCount').textContent = t;
   },
 };
@@ -4922,8 +4997,6 @@ const NET = {
       case 'requestSnapshot': ONLINE.sendSnapshot(true); break;
       case 'tagged': ONLINE.onTagged(m); break;
       case 'miss': ONLINE.onMiss(m); break;
-      case 'scan': for (const id of m.ids) { const h = ONLINE.agent(id); if (h) h.reveal = 2; } if (ROUND.human) ROUND.human.scans = m.left; HUD.update(); break;
-      case 'pulse': TOOLS.pulseRing(new THREE.Vector3(m.x, 0, m.z)); break;
       case 'nerves': ROUND.feed('Nerves of Steel +50', 'good'); AUDIO.sfx('good'); break;
       case 'results': ONLINE.onResults(m); break;
     }
@@ -4941,7 +5014,7 @@ const NET = {
 
 // Paint sync: wrap the local paint canvas so every edit becomes a compact, replayable stroke event.
 //  ['b'] stroke begin, ['e'] stroke end, ['d', island, u, v, r, tool, rgb, opacity%, hardness%] one dab (u/v/r quantized to 16 bit),
-//  ['f', part, rgb, opacity%] flat fill, ['c'] clear. Project stamps and undo/redo send a full PNG snapshot instead.
+//  ['f', part, rgb, opacity%, metal] flat fill, ['c'] clear. Revision 6: 'd' has metalness 0-255 at index 9. Project stamps and undo/redo send a full PNG snapshot instead.
 const TOOL_IDS = ['brush', 'eraser', 'smudge'];
 function hookPaintSync(c) {
   const q = (v) => Math.round(clamp(v, 0, 1) * 65535), rgb = (col) => (col[0] << 16) | (col[1] << 8) | col[2];
@@ -4949,8 +5022,8 @@ function hookPaintSync(c) {
   const o = { begin: c.beginStroke, end: c.endStroke, dab: c.dabIsland, fill: c.fillPart, comp: c.compositeLayer, undo: c.undo, redo: c.redo, clear: c.clear };
   c.beginStroke = function () { if (live()) NET.paintQ.push(['b']); return o.begin.call(this); };
   c.endStroke = function () { if (live() && this.inStroke) NET.paintQ.push(['e']); return o.end.call(this); };
-  c.dabIsland = function (isl, cx, cy, r, tool, col, op, hd) { if (live()) NET.paintQ.push(['d', isl, q(cx / this.size), q(cy / this.size), q(r / this.size), TOOL_IDS.indexOf(tool), rgb(tool === 'eraser' ? CFG.paint.baseColor : col), Math.round(op * 100), Math.round(hd * 100)]); return o.dab.call(this, isl, cx, cy, r, tool, col, op, hd); };
-  c.fillPart = function (part, col, op) { const L = live(); const r = o.fill.call(this, part, col, op); if (L) NET.paintQ.push(['f', part, rgb(col), Math.round(op * 100)]); return r; };
+  c.dabIsland = function (isl, cx, cy, r, tool, col, op, hd) { if (live()) NET.paintQ.push(['d', isl, q(cx / this.size), q(cy / this.size), q(r / this.size), TOOL_IDS.indexOf(tool), rgb(tool === 'eraser' ? CFG.paint.baseColor : col), Math.round(op * 100), Math.round(hd * 100), tool === 'eraser' ? 0 : (col[3] || 0)]); return o.dab.call(this, isl, cx, cy, r, tool, col, op, hd); };
+  c.fillPart = function (part, col, op) { const L = live(); const r = o.fill.call(this, part, col, op); if (L) NET.paintQ.push(['f', part, rgb(col), Math.round(op * 100), col[3] || 0]); return r; };
   c.compositeLayer = function (...a) { const r = o.comp.apply(this, a); if (live()) ONLINE.sendSnapshot(); return r; };
   c.undo = function () { const r = o.undo.call(this); if (live()) ONLINE.sendSnapshot(); return r; };
   c.redo = function () { const r = o.redo.call(this); if (live()) ONLINE.sendSnapshot(); return r; };
@@ -4971,7 +5044,11 @@ class RemoteHider extends HiderAgent {
     const s = this.tgt, man = this._man; if (!s) return;
     const r = man.root, k = 1 - Math.exp(-dt * 12);
     if (!r.visible) { r.visible = true; r.position.set(s.x, s.y, s.z); }
-    r.position.lerp(new THREE.Vector3(s.x, s.y, s.z), k); let dy = s.yaw - r.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); r.rotation.y += dy * k;
+    r.position.lerp(new THREE.Vector3(s.x, s.y, s.z), k);
+    // Revision 6: on a wall the owner sends the full body orientation; else yaw only
+    const tq = this._tq || (this._tq = new THREE.Quaternion());
+    if (Array.isArray(s.wq)) tq.fromArray(s.wq).normalize(); else tq.setFromAxisAngle(_cU.set(0, 1, 0), s.yaw);
+    r.quaternion.slerp(tq, k); this.wallCenter = Array.isArray(s.wq) ? r.position.clone().add(new THREE.Vector3(0, s.pose ? 0.12 : 0.4, 0).applyQuaternion(r.quaternion)) : null;
     if (s.pose && POSES[s.pose]) { // posed: same frame the owner sees (pelvis height from the owner, e.g. on a seat)
       const key = s.pose + ':' + s.py.toFixed(3);
       let f = this.poseCache[key]; if (!f) { f = RIG.evaluate(POSES[s.pose]).frame; f.pelvis.y = s.py; this.poseCache[key] = f; this.cy = Math.max(0.15, RIG.bounds(f).head.y * 0.5 * HS); }
@@ -4992,7 +5069,6 @@ class RemoteSeeker {
     BLASTER.equip(this.man, this.infected); if (this.infected) BLASTER.glow(this.man);
     ALL_MANS.add(this.man); scene.add(this.man.root); this.man.root.visible = false;
     this.pos = new THREE.Vector3(); this.yaw = 0; this.look = 0; this.pitch = 0; this.frame = makeFrame(); this.tmp = makeFrame(); this.phase = 0; this.sp = 0;
-    this.flash = TOOLS.makeFlashlight(false);
   }
   setState(s) { this.tgt = s; }
   update(dt) {
@@ -5003,10 +5079,8 @@ class RemoteSeeker {
     this.phase += dt * (this.sp / 0.68) * Math.PI; walkOverlay(STAND_FRAME, this.tmp, this.phase, clamp(this.sp / 3, 0, 1), false); holdGunPose(this.tmp); blendFrames(this.frame, this.frame, this.tmp, 1 - Math.exp(-dt * 14));
     man.apply(this.frame); man.root.position.copy(this.pos); man.root.rotation.y = this.look;
     const f = new THREE.Vector3(Math.sin(this.look), 0, Math.cos(this.look));
-    this.flash.position.set(this.pos.x + f.x * 0.25, 1.35, this.pos.z + f.z * 0.25); this.flash.target.position.set(this.pos.x + f.x * 6, 1.35 + Math.sin(this.pitch) * 6 - 0.4, this.pos.z + f.z * 6);
-    this.flash.intensity = lerp(this.flash.intensity, s.fl ? 40 : 0, 1 - Math.exp(-dt * 10));
   }
-  dispose() { scene.remove(this.man.root, this.flash, this.flash.target); ALL_MANS.delete(this.man); this.mat.dispose(); }
+  dispose() { scene.remove(this.man.root); ALL_MANS.delete(this.man); this.mat.dispose(); }
 }
 
 const ONLINE = {
@@ -5035,7 +5109,8 @@ const ONLINE = {
       if (p.role !== 'hider' && p.role !== 'seeker') continue;
       if (p.id === NET.id) {
         if (p.role === 'hider') {
-          const s = m.resume && m.self ? m.self : map.spawns.hiders[p.spawn % map.spawns.hiders.length]; GAME.player.teleport(s.x, s.z, m.resume && m.self ? m.self.yaw : map.startYaw); // rejoin: back where the server last saw us GAME.player.out = !p.alive; GAME.player.man.root.visible = true;
+          const s = m.resume && m.self ? m.self : map.spawns.hiders[p.spawn % map.spawns.hiders.length]; GAME.player.teleport(s.x, s.z, m.resume && m.self ? m.self.yaw : map.startYaw); // rejoin: back where the server last saw us
+          GAME.player.out = !p.alive; GAME.player.man.root.visible = true; // Revision 6 fix: hiders spawn again every round
           if (!m.resume) { PAINT.canvas.clear(); PAINT.canvas.undoStack.length = 0; } STAMP.readyAt = 0; CAM.paint.everLocked = false;
           ROUND.hiders.push(new HiderAgent({ id: p.id, name: p.name + ' (you)', isPlayer: true, cy: 0.55, alive: p.alive }));
         } else { ROUND.human = new SeekerPlayer(map.spawns.seekers[p.spawn % 2]); ROUND.human.infected = !!p.infected; ROUND.human.id = p.id; ROUND.human.name = p.name + ' (you)'; ROUND.seekers.push(ROUND.human); }
@@ -5052,18 +5127,18 @@ const ONLINE = {
   },
   myState() {
     const p = GAME.player;
-    if (ROUND.mode === 'seeker' && ROUND.human) { const h = ROUND.human; return { x: h.pos.x, y: 0, z: h.pos.z, yaw: h.yaw, pitch: h.pitch, fl: h.flashOn }; }
+    if (ROUND.mode === 'seeker' && ROUND.human) { const h = ROUND.human; return { x: h.pos.x, y: 0, z: h.pos.z, yaw: h.yaw, pitch: h.pitch }; }
     if (p.out) return { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw };
-    const posed = p.posed && !p.blend ? p.posed.name : null;
+    const posed = p.posed && !p.blend && !(p.wallBlend && p.wallBlend.t < 1 && p.climb) ? p.posed.name : null;
     return { x: +p.pos.x.toFixed(3), y: +p.pos.y.toFixed(3), z: +p.pos.z.toFixed(3), yaw: +p.yaw.toFixed(3), pose: posed, py: +p.man.frame.pelvis.y.toFixed(3), sp: +p.speed.toFixed(2),
-      mv: GAME.time - p.lastActivity < 0.3, cr: p.crouch, cap: this.capsule() };
+      mv: GAME.time - p.lastActivity < 0.3, cr: p.crouch, cap: this.capsule(), wq: p.climb ? p.man.root.quaternion.toArray().map((v) => +v.toFixed(4)) : null };
   },
   // hit capsule for server-side tag validation: segment along the posed body's longest axis + radius (world space)
   capsule() {
     const p = GAME.player, b = fpScaled(RIG.bounds(p.man.frame)), ext = [b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ], ax = ext.indexOf(Math.max(...ext));
     const sorted = [...ext].sort((a, c) => c - a), r = clamp(sorted[1] / 2, 0.08, 0.3), c = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2], half = Math.max(0, ext[ax] / 2 - r);
     const A = [...c], B = [...c]; A[ax] -= half; B[ax] += half;
-    const toW = (q) => { const v = new THREE.Vector3(...q).applyAxisAngle(new THREE.Vector3(0, 1, 0), p.yaw).add(p.pos); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; };
+    const toW = (q) => { const v = new THREE.Vector3(...q).applyQuaternion(p.man.root.quaternion).add(p.pos); /* body orientation (walls too) */ return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; };
     return [...toW(A), ...toW(B), +r.toFixed(3)];
   },
   onStates(list) { if (!ROUND.online) return; for (const s of list) { const a = this.agent(s.id); if (a && a.setState) a.setState(s); } },
@@ -5075,9 +5150,9 @@ const ONLINE = {
       switch (op[0]) {
         case 'b': c.beginStroke(); break;
         case 'e': c.endStroke(); break;
-        case 'd': { const [, isl, u, v, r, t, col, o, hd] = op; if (!(isl >= 0 && isl < PAINT_MESH.islandCount)) break;
-          c.dabIsland(isl, u / 65535 * S, v / 65535 * S, Math.max(0.5, r / 65535 * S), TOOL_IDS[t] || 'brush', [(col >> 16) & 255, (col >> 8) & 255, col & 255], clamp(o / 100, 0, 1), clamp(hd / 100, 0, 1)); break; }
-        case 'f': if (PART_NAMES.includes(op[1])) c.fillPart(op[1], [(op[2] >> 16) & 255, (op[2] >> 8) & 255, op[2] & 255], clamp(op[3] / 100, 0, 1)); break;
+        case 'd': { const [, isl, u, v, r, t, col, o, hd, mt = 0] = op; if (!(isl >= 0 && isl < PAINT_MESH.islandCount)) break;
+          c.dabIsland(isl, u / 65535 * S, v / 65535 * S, Math.max(0.5, r / 65535 * S), TOOL_IDS[t] || 'brush', [(col >> 16) & 255, (col >> 8) & 255, col & 255, clamp(mt | 0, 0, 255)], clamp(o / 100, 0, 1), clamp(hd / 100, 0, 1)); break; }
+        case 'f': if (PART_NAMES.includes(op[1])) c.fillPart(op[1], [(op[2] >> 16) & 255, (op[2] >> 8) & 255, op[2] & 255, clamp(op[4] | 0, 0, 255)], clamp(op[3] / 100, 0, 1)); break;
         case 'c': c.clear(); break;
       }
     }
@@ -5087,8 +5162,11 @@ const ONLINE = {
   sendSnapshot(now) {
     clearTimeout(this._snapT);
     const go = () => {
-      const c = PAINT.canvas, S = c.size, [big, bx] = TEX.canvas(S), [small, sx] = TEX.canvas(1024);
-      bx.putImageData(new ImageData(new Uint8ClampedArray(c.pixels), S, S), 0, 0); sx.drawImage(big, 0, 0, 1024, 1024);
+      const c = PAINT.canvas, S = c.size, [big, bx] = TEX.canvas(S), small = document.createElement('canvas'); small.width = 2048; small.height = 1024; const sx = small.getContext('2d');
+      const col = new Uint8ClampedArray(c.pixels), met = new Uint8ClampedArray(c.pixels.length);
+      for (let i = 0; i < col.length; i += 4) { met[i] = met[i + 1] = met[i + 2] = 255 - col[i + 3]; met[i + 3] = 255; col[i + 3] = 255; }
+      bx.putImageData(new ImageData(col, S, S), 0, 0); sx.drawImage(big, 0, 0, 1024, 1024);
+      bx.putImageData(new ImageData(met, S, S), 0, 0); sx.drawImage(big, 1024, 0, 1024, 1024);
       NET.paintQ.length = 0; // the snapshot supersedes queued strokes
       NET.send({ type: 'snapshot', png: small.toDataURL('image/png') });
     };
@@ -5097,7 +5175,12 @@ const ONLINE = {
   onSnapshot(m) {
     const own = m.from === NET.id, h = own ? null : this.agent(m.from); if (!own && (!h || !h.isRemote)) return;
     const img = new Image();
-    img.onload = () => { const c = own ? PAINT.canvas : h.canvas, S = c.size, [cv2, x] = TEX.canvas(S); x.drawImage(img, 0, 0, S, S); const d = x.getImageData(0, 0, S, S).data; c.pixels.set(d); c.base.set(d); c.markDirty(0, 0, S, S, false); };
+    img.onload = () => {
+      const c = own ? PAINT.canvas : h.canvas, S = c.size, [cv2, x] = TEX.canvas(S), wide = img.width === img.height * 2, W = wide ? img.width / 2 : img.width;
+      x.drawImage(img, 0, 0, W, img.height, 0, 0, S, S); const d = x.getImageData(0, 0, S, S).data;
+      if (wide) { x.drawImage(img, W, 0, W, img.height, 0, 0, S, S); const m = x.getImageData(0, 0, S, S).data; for (let i = 0; i < d.length; i += 4) d[i + 3] = 255 - m[i]; }
+      c.pixels.set(d); c.base.set(d); c.markDirty(0, 0, S, S, false);
+    };
     img.src = m.png;
   },
   onTagged(m) {
@@ -5293,8 +5376,8 @@ const CONTROLS = [
   ['WASD', 'move (posed: shuffle at 1.2 m/s in HIDE)'], ['Shift', 'sprint'], ['C', 'crouch (Ctrl also works, but Ctrl+W closes the browser tab)'], ['Space', 'hop'],
   ['Q (hold)', 'pose wheel - release on a pose; wheel rotates, click locks'], ['X', 'stand up / cancel pose'], ['E', 'paint mode'],
   ['I / Alt+click', 'eyedropper: surface base colour (add Shift for the lit screen colour)'], ['[ ]', 'brush size'], ['Ctrl+Z / Ctrl+Y', 'undo / redo'], ['V', 'reset paint view'],
-  ['Left click', 'paint (hider) / fire the paint blaster, hold for 3 shots/s (seeker)'], ['Right click', 'zoom (seeker) / orbit (paint mode)'], ['F', 'flashlight (seeker)'],
-  ['R', 'scan pulse (seeker, 2 per round)'], ['F3', 'FPS counter'], ['Esc', 'pause'],
+  ['Left click', 'paint (hider) / fire the paint blaster, hold for 3 shots/s (seeker)'], ['Right click', 'zoom (seeker) / orbit (paint mode)'],
+  ['Space at a wall', 'climb onto it (or keep walking into it); on a wall: W/S up/down, A/D sideways, Space jumps off'], ['F3', 'FPS counter'], ['Esc', 'pause'],
 ];
 const isSeeker = () => ROUND.active && ROUND.mode === 'seeker';
 
@@ -5381,8 +5464,6 @@ window.addEventListener('keydown', (e) => {
   const repeat = e.repeat; INPUT.keys.add(e.code);
   if (isSeeker()) { // seeker tools
     if (repeat) return;
-    if (e.code === 'KeyF') { const h = ROUND.human; h.flashManual = !h.flashOn; AUDIO.sfx('click'); }
-    if (e.code === 'KeyR') ROUND.human.scan();
     return;
   }
   if (GAME.player.out) return;
@@ -5606,6 +5687,7 @@ window.PNS = {
   look(yawDeg, pitchDeg = -7) { const p = GAME.player; p.camYaw = D2R(yawDeg) + Math.PI; p.camPitch = D2R(pitchDeg); return this.tick(2); },
   face(yawDeg) { const p = GAME.player; p.yaw = D2R(yawDeg); p.syncRoot(); return this.tick(1); },
   setPose(name, yawDeg) {
+    if (GAME.player.climb) return GAME.player.wallPose(name) || 'unknown pose';
     if (name === 'stand') { POSE_UI.standUp(); return 'stand'; }
     if (!POSES[name]) return 'unknown pose: ' + Object.keys(POSES).join(', ');
     POSE_UI.beginPlacement(name); if (yawDeg !== undefined) { POSE_UI.placement.yaw = D2R(yawDeg); POSE_UI.placement.yawUser = true; }
@@ -5673,7 +5755,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 0));
   initRigFrames();
   PAINT_MESH.build();
-  STAMP.init(); DETECT.init(); OUTLINE.init(); BLASTER.init();
+  STAMP.init(); DETECT.init(); BLASTER.init();
   loadMap(GAME.mapId);
   PAINT.canvas = new PaintCanvas(CFG.paint.size);
   PAINT.canvas.onChange = () => ROUND.onPaint();

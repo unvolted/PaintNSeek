@@ -27,6 +27,29 @@ The user played checkpoint A and asked for three changes. They override anything
 
 ---
 
+## Revision 6 (user feedback, 2026-11-09)
+
+1. **Remove the flashlight** completely (seekers, AI seekers, remote seekers, auto-on, F key, controls list, HUD).
+2. **Remove Scan Pulse** completely (R key, HUD pips, AI use, server messages, Infection reset, controls list).
+3. **Bug:** after the first round, hiders do not spawn in the next round. Fix it for offline (Next round) and online.
+4. **Random seeker online:** seekers are chosen at random each round on the server (not always the host, no fixed
+   rotation); avoid picking the same player as last round when there are other players.
+5. **Wall climbing** (reference video `game-assets/reference/mecha_frames/`, all 42 frames): a hider walks up onto
+   any vertical wall or tall vertical prop face and sticks to it. The wall becomes their floor: "down" is into the
+   wall, W/S move up/down the wall, A/D sideways, the camera turns with them. They can pose on the wall; Lie flat
+   on a wall presses the body flat against it facing out (the video's hider lies flat against the canvas inside a
+   picture frame hung ~1.5 m up). Getting on: walk into a wall and press Space (or keep walking into it for 0.3 s).
+   Getting off: Space jumps off, walking onto the floor edge steps down. Stay below the ceiling and inside the room;
+   collision on walls uses the same shape-accurate system. Moving on walls counts as moving for AI suspicion. Works
+   in HIDE and SEEK, offline and online (send orientation so others see the hider on the wall). Seekers cannot climb.
+   AI hiders sometimes pick a wall spot (inside an empty frame or against matching wallpaper).
+6. **Metallic slider in paint mode:** a "Metallic" slider (0–100%) under Opacity/Hardness. Each stroke/fill also
+   paints metalness into a second body texture (metalnessMap; keep roughness lower where metallic so it reads),
+   undo/redo included, eyedropper on a metal surface also sets the slider. Sync it online with the strokes and
+   snapshots.
+
+---
+
 ## Revision 5 (user feedback, 2026-11-08): tighter collisions and more places to hide inside things
 
 The user wants hiders to fit better **under and inside** objects, and more openings to hide in.

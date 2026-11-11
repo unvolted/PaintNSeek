@@ -78,16 +78,19 @@ function startRound(room) {
   let best = room.map, bv = votes[room.map] || 0;
   for (const m of MAPS) if ((votes[m] || 0) > bv) { bv = votes[m]; best = m; }
   room.map = best;
-  // seekers rotate each round through the join order
+  // Revision 6: seekers are picked at random each round (not the host, no fixed rotation); last round's seekers are
+  // only picked again when there is nobody else
   const infection = room.settings.mode === 'infection';
   // Infection: 1 starting infected seeker (2 with 8+ players); Classic: host setting (1-2)
   const order = [...room.players.values()].filter((p) => p.connected), nSeek = Math.min(infection ? (order.length >= 8 ? 2 : 1) : room.settings.seekers, order.length - 1);
-  const seekers = new Set(); for (let i = 0; i < nSeek; i++) seekers.add(order[(room.rotation + i) % order.length].id);
-  room.rotation = (room.rotation + nSeek) % order.length;
+  const last = room.lastSeekers || new Set(), shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const pool = [...shuffle(order.filter((p) => !last.has(p.id))), ...shuffle(order.filter((p) => last.has(p.id)))];
+  const seekers = new Set(pool.slice(0, nSeek).map((p) => p.id));
+  room.lastSeekers = seekers;
   const spawnSlots = [...Array(SPAWNS).keys()].sort(() => Math.random() - 0.5); let si = 0, sk = 0;
   for (const p of room.players.values()) {
     Object.assign(p, { role: !p.connected ? 'spectator' : seekers.has(p.id) ? 'seeker' : 'hider', alive: true, points: 0, survived: 0, nerves: 0, tags: 0, misses: 0, taggedBy: null, tagT: null,
-      scans: 2, lastActivity: 0, state: null, cap: null, lastTag: 0, nerveState: new Map() });
+      lastActivity: 0, state: null, cap: null, lastTag: 0, nerveState: new Map() });
     p.wasHider = p.role === 'hider'; p.infected = infection && p.role === 'seeker';
     p.spawn = p.role === 'hider' ? spawnSlots[si++ % SPAWNS] : p.role === 'seeker' ? sk++ : 0;
   }
@@ -152,8 +155,8 @@ function handleTag(room, p, m) {
   if (hit) {
     hit.alive = false; hit.taggedBy = p.name; hit.tagT = room.settings.seek - room.t; p.tags++; p.points += 100;
     const infection = room.settings.mode === 'infection';
-    // Infection: the hider becomes a full-size seeker where they were hit, with 2 fresh scan pulses
-    if (infection) { hit.role = 'seeker'; hit.infected = true; hit.scans = 2; hit.cap = null; }
+    // Infection: the hider becomes a full-size seeker where they were hit
+    if (infection) { hit.role = 'seeker'; hit.infected = true; hit.cap = null; }
     broadcast(room, { type: 'tagged', by: p.id, byName: p.name, target: hit.id, targetName: hit.name, point, o, infected: infection });
     if (!aliveHiders(room).length) endRound(room, infection ? 'infected' : 'seekers');
     else if (infection) syncRoom(room);
@@ -268,7 +271,8 @@ function handle(conn, m) {
     case 'state': { // 15 Hz client state: position, yaw, pose, posed movement; hiders also send their hit capsule
       if (room.phase === 'lobby' || p.role === 'spectator') return;
       const s = { x: clampN(m.x, -50, 80), y: clampN(m.y, -2, 5), z: clampN(m.z, -50, 80), yaw: clampN(m.yaw, -20, 20), pitch: clampN(m.pitch, -2, 2), pose: typeof m.pose === 'string' ? m.pose.slice(0, 12) : null,
-        py: clampN(m.py, -1, 3, 0.62), sp: clampN(m.sp, 0, 8), mv: !!m.mv, cr: !!m.cr, fl: !!m.fl };
+        py: clampN(m.py, -1, 3, 0.62), sp: clampN(m.sp, 0, 8), mv: !!m.mv, cr: !!m.cr,
+        wq: Array.isArray(m.wq) && m.wq.length === 4 ? m.wq.map((x) => clampN(x, -1, 1)) : null }; // Revision 6: body orientation on a wall
       // Revision 3: hiders keep moving during SEEK (no freeze)
       if (p.role === 'hider' && (s.mv || (p.state && Math.hypot(s.x - p.state.x, s.z - p.state.z) > 0.02))) p.lastActivity = Date.now();
       p.state = s;
@@ -290,13 +294,6 @@ function handle(conn, m) {
     }
     case 'look': if (p.role === 'hider' && typeof m.jpg === 'string' && m.jpg.startsWith('data:image/jpeg;base64,')) room.looks.set(p.id, m.jpg); return; // results card image
     case 'tag': return handleTag(room, p, m);
-    case 'scan': { // Scan Pulse: reveal hiders that moved/painted in the last 3 s (within 20 m), 2 per round
-      if (room.phase !== 'seek' || p.role !== 'seeker' || p.scans <= 0 || !p.state) return;
-      p.scans--;
-      const now = Date.now(), ids = aliveHiders(room).filter((h) => h.state && now - h.lastActivity < 3000 && Math.hypot(h.state.x - p.state.x, h.state.z - p.state.z) < 20).map((h) => h.id);
-      sendTo(p, { type: 'scan', ids, left: p.scans }); broadcast(room, { type: 'pulse', by: p.id, x: p.state.x, z: p.state.z }, (q) => q.id !== p.id);
-      return;
-    }
     case 'leave': leave(conn, true); return;
   }
 }

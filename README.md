@@ -5,7 +5,7 @@ blend into cozy-eerie mansion rooms; seekers hunt them in first person and tag t
 
 - **Offline:** hide from AI seekers (they "see" you by comparing renders of the room with and without you), or
   practise seeking against AI hiders that pose and camouflage themselves.
-- **Online:** 2-10 players in a room with a 5-letter code; 1-2 seekers rotate every round.
+- **Online:** 2-10 players in a room with a 5-letter code; 1-2 seekers are picked at random each round (never the same player twice in a row when others are available).
 - Three maps: **Plum Ballroom Gallery**, **Sage Guest Wing**, **Copper Pot Kitchen**.
 - Built with three.js (pinned `three@0.170.0` from a CDN, no bundler) and a small Node.js + `ws` server.
 
@@ -16,18 +16,16 @@ blend into cozy-eerie mansion rooms; seekers hunt them in first person and tag t
 | WASD | move (hiders move in HIDE and SEEK; while posed: shuffle at 1.2 m/s) |
 | Shift | sprint |
 | C (or Ctrl) | crouch (C is safer: Ctrl+W closes the browser tab) |
-| Space | hop |
+| Space | hop; at a wall: climb onto it (or keep walking into it). On a wall: W/S up/down, A/D sideways, poses work (Lie flat = flat against the wall), Space jumps off |
 | Q (hold) | pose wheel: release on a pose, mouse wheel turns the body, left click locks |
 | X | stand up / cancel a pose |
-| E | paint mode (left drag paint, right drag orbit, wheel zoom) |
+| E | paint mode (left drag paint, right drag orbit, wheel zoom); the Metallic slider paints metal (undoable, synced online; the eyedropper sets it on metal surfaces) |
 | I or Alt+click | eyedropper: picks the surface's own base colour (Shift = the lit on-screen colour) |
 | [ ] | brush size |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | V | back to the locked paint view |
 | Left click | paint (hider) / fire the paint blaster, hold for 3 shots per second (seeker) |
 | Right mouse | orbit (paint mode) / zoom (seeker) |
-| F | flashlight (seeker) |
-| R | Scan Pulse (seeker, 2 per round) |
 | F3 | FPS counter |
 | Esc | pause |
 
@@ -38,7 +36,7 @@ fresh paint shimmers; seekers shoot red paint pellets with the **paint blaster**
 **Game modes** (offline lobby and online host settings):
 - **Classic**: seekers tag hiders out; seekers win if everyone is found before the timer ends.
 - **Infection**: one infected seeker (two with 8+ players). A hit hider becomes an infected seeker on the spot (green
-  glow, green paint, a gun, 2 fresh scan pulses) and hunts the rest, keeping their paint as a trophy. Infected win when
+  glow, green paint, a gun) and hunts the rest, keeping their paint as a trophy. Infected win when
   every hider is infected; survivors win when the timer runs out. +100 per infection, +1/s survived, +150 for surviving.
 
 ## Run locally
